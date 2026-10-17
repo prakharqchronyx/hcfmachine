@@ -1,0 +1,1711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HCF Preform Laser Welder</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: one-screen machine HMI. Left = 3D viewport with HUD overlays (title, view tools,
+   section inset, timeline). Right = tabbed controller panel. Below 920px the panel stacks
+   under the viewport. Deliberately single dark theme (HMI look; laser glow reads on dark). */
+:root{
+  --bg:#0b1015; --surface:#11181f; --surface-2:#17202a; --surface-3:#1e2a35;
+  --line:#23303b; --line-2:#30404d;
+  --fg:#dbe3ea; --muted:#8a99a7; --faint:#5e6d7a;
+  --accent:#4cc3db; --accent-ink:#04222a; --accent-soft:rgba(76,195,219,.14);
+  --weld:#ffb23a; --beam:#ff4769;
+  --ok:#5ccf8c; --warn:#f3c94f; --crit:#ff6b6b;
+  --tube-j:#d4e4ee; --tube-p:#b4c3cf; --tube-s:#6aa8ff; --tube-t:#5fd38d;
+  --vp-top:#18222c; --vp-bot:#0a0e12;
+  --f-display:"Barlow Condensed","Arial Narrow","Roboto Condensed",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius:10px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 var(--f-body);-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+#app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 392px;gap:12px;
+  padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* ---------- viewport ---------- */
+#vp{position:relative;min-width:0;min-height:0;overflow:hidden;border-radius:var(--radius);border:1px solid var(--line);
+  background:linear-gradient(180deg,var(--vp-top),var(--vp-bot))}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;outline:none}
+#gl:active{cursor:grabbing}
+#glmsg{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted);max-width:none}
+#glmsg p{max-width:44ch;margin:0}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lbl{position:absolute;left:0;top:0;will-change:transform}
+.lbl .dot{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(76,195,219,.22)}
+.lbl .stem{position:absolute;left:-.5px;top:-24px;width:1px;height:21px;background:linear-gradient(to top,rgba(76,195,219,.9),rgba(76,195,219,.25))}
+.lbl .card{position:absolute;left:-1px;bottom:23px;background:rgba(9,13,17,.84);border:1px solid var(--line-2);border-left:2px solid var(--accent);
+  padding:3px 8px 4px;border-radius:3px;white-space:nowrap}
+.lbl.left .card{left:auto;right:-1px;border-left:1px solid var(--line-2);border-right:2px solid var(--accent);text-align:right}
+.lbl b{display:block;font:600 12px/1.15 var(--f-display);letter-spacing:.06em;text-transform:uppercase;color:var(--fg)}
+.lbl span{display:block;font:500 11px/1.25 var(--f-body);color:var(--muted)}
+
+.hud-tl{position:absolute;left:14px;top:12px;max-width:min(52%,440px);pointer-events:none}
+.eyebrow{font:600 11px/1 var(--f-display);letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.hud-tl h1{margin:4px 0 2px;font:600 24px/1.05 var(--f-display);letter-spacing:.02em;text-wrap:balance}
+.hud-tl .meta{font:500 12px/1.35 var(--f-body);color:var(--muted)}
+.pillrow{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--f-mono);letter-spacing:.04em;padding:5px 8px;border-radius:99px;border:1px solid var(--line-2);background:rgba(10,14,18,.75);color:var(--muted)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+.pill.on{color:#fff;border-color:rgba(255,71,105,.7);background:rgba(255,71,105,.18)}
+.pill.on i{background:var(--beam);box-shadow:0 0 8px var(--beam)}
+.pill.scan i{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.pill.scan{color:var(--fg);border-color:rgba(92,207,140,.55)}
+
+.tools{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.seg{display:inline-flex;background:rgba(10,14,18,.8);border:1px solid var(--line-2);border-radius:8px;padding:2px;gap:2px;flex-wrap:wrap;justify-content:flex-end}
+.seg button{border:0;background:transparent;padding:5px 9px;border-radius:6px;font:600 12px/1 var(--f-display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.seg button:hover{color:var(--fg);background:var(--surface-3)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+
+#banner{position:absolute;left:50%;top:76px;transform:translateX(-50%);text-align:center;pointer-events:none;
+  background:rgba(9,13,17,.78);border:1px solid var(--line-2);border-top:2px solid var(--weld);padding:10px 18px 12px;border-radius:6px;max-width:min(560px,86%)}
+#banner .be{font:600 11px/1 var(--f-display);letter-spacing:.18em;text-transform:uppercase;color:var(--weld)}
+#banner .bt{font:600 26px/1.1 var(--f-display);letter-spacing:.02em;margin-top:5px}
+#banner .bs{font:500 13px/1.35 var(--f-body);color:var(--muted);margin-top:4px;text-wrap:balance}
+
+.inset{position:absolute;left:12px;bottom:62px;margin:0;width:232px;background:rgba(9,13,17,.88);border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+.inset canvas{display:block;width:232px;height:232px}
+.inset figcaption{font:600 10px/1 var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:7px 9px;border-top:1px solid var(--line)}
+
+.tl{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  background:linear-gradient(to top,rgba(8,11,14,.95),rgba(8,11,14,.72) 70%,rgba(8,11,14,0))}
+.tl-btns{display:flex;gap:4px}
+.ib{width:34px;height:34px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--fg)}
+.ib:hover{background:var(--surface-3)}
+.ib.play{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.ib svg{width:16px;height:16px;fill:currentColor}
+.tl-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.tl-stages{position:relative;height:18px}
+.tls{position:absolute;top:0;height:18px;border:0;border-left:1px solid var(--line-2);background:transparent;padding:0 6px;text-align:left;overflow:hidden;white-space:nowrap;
+  font:600 11px/18px var(--f-display);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.tls:hover{color:var(--fg)}
+.tls.cur{color:var(--fg)}
+#scrub{width:100%;margin:0;accent-color:var(--accent);height:16px}
+.tl-time{font:500 12px/1 var(--f-mono);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tl select{background:var(--surface-2);border:1px solid var(--line-2);border-radius:7px;padding:6px 6px;font:600 12px/1 var(--f-mono)}
+
+/* ---------- panel ---------- */
+#panel{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.tabs button{flex:1;border:0;background:transparent;padding:11px 6px 10px;font:600 13px/1 var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid transparent}
+.tabs button:hover{color:var(--fg)}
+.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.panes{flex:1;min-height:0;overflow:auto}
+.pane{padding:14px 16px 20px;display:flex;flex-direction:column;gap:14px}
+.pane h3{margin:2px 0 -6px;font:600 12px/1 var(--f-display);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.pane p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+.pane p b{color:var(--fg);font-weight:600}
+
+.status{display:grid;gap:3px}
+.chip{justify-self:start;font:600 11px/1 var(--f-display);letter-spacing:.14em;text-transform:uppercase;padding:5px 8px;border-radius:4px;background:var(--accent-soft);color:var(--accent);border:1px solid rgba(76,195,219,.35)}
+.st-title{font:600 21px/1.1 var(--f-display);letter-spacing:.02em;margin-top:5px}
+.st-sub{color:var(--muted);font-size:13px}
+.dro{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ax{background:#090d11;border:1px solid var(--line);border-radius:6px;padding:7px 9px 8px;display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:8px}
+.axn{font:700 12px/1 var(--f-display);letter-spacing:.1em;color:var(--accent)}
+.axv{font:500 17px/1.1 var(--f-mono);text-align:right;font-variant-numeric:tabular-nums;color:#eaf6f9}
+.axu{grid-column:1/-1;font:500 10px/1.2 var(--f-mono);color:var(--faint);text-align:right}
+.ax.las .axv{font-size:14px}
+.ax.las.on{border-color:rgba(255,71,105,.6);background:rgba(255,71,105,.08)}
+.ax.las.on .axv{color:#ff9fb1}
+.stepnow{font:500 13px/1.35 var(--f-body);color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.stepnow i{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+
+.presets{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.presets button{border:1px solid var(--line-2);background:var(--surface-2);border-radius:6px;padding:7px 4px 6px;display:grid;gap:2px;text-align:center}
+.presets button b{font:600 15px/1 var(--f-mono)}
+.presets button span{font:500 11px/1 var(--f-body);color:var(--muted)}
+.presets button:hover{background:var(--surface-3)}
+.presets button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.presets button[aria-pressed="true"] b{color:var(--accent)}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row label{color:var(--muted);font-size:13px}
+.num{width:96px;background:#090d11;border:1px solid var(--line-2);border-radius:6px;padding:6px 8px;font:500 14px/1 var(--f-mono);font-variant-numeric:tabular-nums}
+.num:focus{border-color:var(--accent);outline:none}
+.seg2{display:inline-flex;border:1px solid var(--line-2);border-radius:6px;overflow:hidden}
+.seg2 button{border:0;background:var(--surface-2);padding:6px 10px;font:600 13px/1 var(--f-mono);color:var(--muted)}
+.seg2 button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.msg{font-size:13px;line-height:1.45;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted)}
+.msg.ok{border-color:rgba(92,207,140,.4)} .msg.ok b{color:var(--ok)}
+.msg.warn{border-color:rgba(243,201,79,.45)} .msg.warn b{color:var(--warn)}
+.msg.crit{border-color:rgba(255,107,107,.5)} .msg.crit b{color:var(--crit)}
+.btnrow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.btn{border:1px solid var(--line-2);background:var(--surface-2);border-radius:6px;padding:8px 4px;font:600 12px/1 var(--f-display);letter-spacing:.08em;text-transform:uppercase}
+.btn:hover{background:var(--surface-3)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chk{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.chk input{accent-color:var(--accent);width:16px;height:16px}
+.prog{position:relative;background:#080b0e;border:1px solid var(--line);border-radius:6px;height:260px;overflow:auto;padding:6px 0;font:12px/1.55 var(--f-mono)}
+.pl{display:flex;gap:10px;padding:0 10px;white-space:pre;color:#b9c7d1}
+.pl .ln{color:var(--faint);flex:none;width:44px}
+.pl .cmt{color:#6f8293}
+.pl.cm .cd{color:#6f8293}
+.pl.cur{background:rgba(76,195,219,.16);color:#fff;box-shadow:inset 2px 0 0 var(--accent)}
+.pl.cur .cmt{color:#a9c6d2}
+
+table.dims{width:100%;border-collapse:collapse}
+.dims th,.dims td{padding:4px 4px;text-align:left;font-size:13px}
+.dims thead th{font:600 11px/1 var(--f-display);letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding-bottom:6px}
+.dims tbody th{font-weight:500;color:var(--fg);white-space:nowrap}
+.dims .num{width:64px;padding:5px 6px;font-size:13px}
+.dims td.w{font:500 13px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:0;border:2px solid}
+.sw.j{border-color:var(--tube-j)} .sw.p{border-color:var(--tube-p)} .sw.s{border-color:var(--tube-s)} .sw.t{border-color:var(--tube-t)}
+#design{width:100%;max-width:360px;aspect-ratio:1/1;align-self:center;background:#090d11;border:1px solid var(--line);border-radius:8px}
+dl.kv{display:grid;grid-template-columns:1fr auto;gap:5px 12px;margin:0;font-size:13px}
+dl.kv dt{color:var(--muted)}
+dl.kv dd{margin:0;font:500 13px var(--f-mono);text-align:right;font-variant-numeric:tabular-nums}
+ul.checks{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+ul.checks li{display:grid;grid-template-columns:auto 1fr;gap:8px;font-size:13px;line-height:1.45;color:var(--muted)}
+ul.checks li i{width:8px;height:8px;border-radius:50%;margin-top:6px}
+ul.checks li.ok i{background:var(--ok)} ul.checks li.warn i{background:var(--warn)} ul.checks li.crit i{background:var(--crit)}
+ul.checks li.crit{color:var(--fg)}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th,.tbl td{padding:5px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.tbl th{font:600 11px/1.2 var(--f-display);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.tbl td.n{font:500 13px var(--f-mono);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tbl td{color:var(--muted)}
+ol.bom{margin:0;padding:0;list-style:none;display:grid;gap:10px;counter-reset:b}
+ol.bom li{display:grid;grid-template-columns:28px 1fr;gap:2px 8px;font-size:13px;line-height:1.45;color:var(--muted)}
+ol.bom li::before{counter-increment:b;content:counter(b,decimal-leading-zero);grid-row:1/span 2;font:600 12px/1.6 var(--f-mono);color:var(--accent)}
+ol.bom li b{color:var(--fg);font-weight:600}
+.note{border-left:2px solid var(--weld);padding:2px 0 2px 12px;display:grid;gap:4px}
+.note h4{margin:0;font:600 15px/1.2 var(--f-display);letter-spacing:.02em;color:var(--fg)}
+.note p{font-size:13px}
+.kbd{font:500 11px var(--f-mono);border:1px solid var(--line-2);border-radius:4px;padding:1px 5px;color:var(--fg)}
+
+@media (max-width:1280px) and (min-width:921px){
+  .hud-tl .meta{display:none}
+  .hud-tl h1{font-size:20px}
+}
+@media (max-width:1120px) and (min-width:921px){
+  .hud-tl h1{display:none}
+}
+@media (max-width:920px){
+  #app{display:flex;flex-direction:column;height:auto;min-height:100%}
+  #vp{height:min(70vh,640px);min-height:420px;flex:none}
+  #panel{overflow:visible;flex:none}
+  .panes{overflow:visible}
+}
+@media (max-width:600px){
+  .hud-tl .eyebrow,.hud-tl h1,.hud-tl .meta{display:none}
+  .hud-tl{top:94px;left:12px;max-width:none}
+  .pillrow{margin-top:0}
+  .tls span{display:none}
+  .inset{width:150px;bottom:96px}
+  .inset canvas{width:150px;height:150px}
+  .inset figcaption{display:none}
+  #banner{top:auto;bottom:258px;padding:8px 12px}
+  #banner .bt{font-size:20px}
+  #banner .bs{display:none}
+  .tl{flex-wrap:wrap;gap:8px}
+  .tl-mid{order:3;flex-basis:100%}
+  .tl-time{margin-left:auto}
+  .lbl span{display:none}
+  .seg button{padding:5px 7px;font-size:11px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <section id="vp" aria-label="3D machine view">
+    <canvas id="gl" tabindex="0" aria-label="3D view: drag to orbit, right-drag or shift-drag to pan, scroll to zoom"></canvas>
+    <div id="glmsg" hidden><p>The 3D view needs WebGL and the three.js library from cdnjs. The section view, controller and design checks below still run.</p></div>
+    <div id="labels"></div>
+
+    <header class="hud-tl">
+      <div class="eyebrow">Hollow-core fibre preform</div>
+      <h1>Laser tangential welder</h1>
+      <div class="meta">GZTECH S-50-1030-F2 fs laser · 1030 nm · tubes 1200 mm · concept layout</div>
+      <div class="pillrow">
+        <span class="pill" id="pLaser"><i></i>LASER OFF</span>
+        <span class="pill" id="pStage"><i></i>STAGE 1/3</span>
+      </div>
+    </header>
+
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Camera">
+        <button data-cam="auto" aria-pressed="true">Auto</button>
+        <button data-cam="overview" aria-pressed="false">Overview</button>
+        <button data-cam="weld" aria-pressed="false">Weld head</button>
+        <button data-cam="index" aria-pressed="false">Indexer</button>
+        <button data-cam="beam" aria-pressed="false">Beam path</button>
+      </div>
+      <div class="seg" role="group" aria-label="Show">
+        <button data-tog="labels" aria-pressed="true">Labels</button>
+        <button data-tog="cut" aria-pressed="true">Cut-away</button>
+        <button data-tog="beam" aria-pressed="true">Beam</button>
+        <button data-tog="encl" aria-pressed="false">Enclosure</button>
+      </div>
+    </div>
+
+    <div id="banner" hidden><div class="be" id="bE"></div><div class="bt" id="bT"></div><div class="bs" id="bS"></div></div>
+
+    <figure class="inset"><canvas id="inset" width="232" height="232"></canvas><figcaption>Section at weld head · seen from A1</figcaption></figure>
+
+    <div class="tl">
+      <div class="tl-btns">
+        <button class="ib" id="bRestart" aria-label="Restart"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM6 8l8-6v12z"/></svg></button>
+        <button class="ib" id="bBack" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M2 8l7-6v12zM9 8l6-6v12z"/></svg></button>
+        <button class="ib play" id="bPlay" aria-label="Pause"><svg viewBox="0 0 16 16" id="icoPlay"><path d="M3 2h4v12H3zM9 2h4v12H9z"/></svg></button>
+        <button class="ib" id="bFwd" aria-label="Next step"><svg viewBox="0 0 16 16"><path d="M1 2l6 6-6 6zM7 2l7 6-7 6z"/></svg></button>
+      </div>
+      <div class="tl-mid">
+        <div class="tl-stages" id="tlStages"></div>
+        <input id="scrub" type="range" min="0" max="100" step="0.01" value="0" aria-label="Process timeline">
+      </div>
+      <div class="tl-time" id="tTime">0:00 / 0:00</div>
+      <select id="speed" aria-label="Playback speed">
+        <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option>
+      </select>
+    </div>
+  </section>
+
+  <aside id="panel" aria-label="Controller panel">
+    <nav class="tabs" role="tablist">
+      <button role="tab" id="t-ctl" aria-selected="true" aria-controls="p-ctl">Controller</button>
+      <button role="tab" id="t-pre" aria-selected="false" aria-controls="p-pre">Preform</button>
+      <button role="tab" id="t-mac" aria-selected="false" aria-controls="p-mac">Machine</button>
+      <button role="tab" id="t-not" aria-selected="false" aria-controls="p-not">Notes</button>
+    </nav>
+    <div class="panes">
+      <!-- CONTROLLER -->
+      <section class="pane" id="p-ctl" role="tabpanel" aria-labelledby="t-ctl">
+        <div class="status">
+          <span class="chip" id="stChip">Stage 1 of 3</span>
+          <div class="st-title" id="stTitle">Tertiary → Secondary</div>
+          <div class="st-sub" id="stSub">Part 1 of 5</div>
+        </div>
+        <div class="dro" aria-label="Axis positions">
+          <div class="ax"><span class="axn">X</span><span class="axv" id="droX">0.000</span><span class="axu">mm · along tube</span></div>
+          <div class="ax"><span class="axn">Z</span><span class="axv" id="droZ">0.000</span><span class="axu">mm · objective tip</span></div>
+          <div class="ax"><span class="axn">A</span><span class="axv" id="droA">0.000</span><span class="axu">deg · A1 = A2 synced</span></div>
+          <div class="ax las" id="droLbox"><span class="axn">Laser</span><span class="axv" id="droL">OFF</span><span class="axu" id="droF">G0 rapid</span></div>
+        </div>
+        <div class="stepnow"><i></i><span id="stepNow">—</span></div>
+
+        <h3>Index angle θ</h3>
+        <div class="presets" id="presets"></div>
+        <div class="row">
+          <label for="theta">Custom θ</label><input class="num" id="theta" type="number" min="24" max="180" step="0.001" value="72"><span class="kbd">deg</span>
+          <span style="flex:1"></span>
+          <label>Direction</label>
+          <div class="seg2" role="group" aria-label="Index direction"><button id="dirP" aria-pressed="true">+</button><button id="dirN" aria-pressed="false">−</button></div>
+        </div>
+        <div class="msg" id="thetaMsg"></div>
+
+        <h3>Run</h3>
+        <div class="btnrow">
+          <button class="btn pri" data-go="0">All</button>
+          <button class="btn" data-go="1">Stage 1</button>
+          <button class="btn" data-go="2">Stage 2</button>
+          <button class="btn" data-go="3">Stage 3</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="fast" checked> Fast-forward repeated parts</label>
+
+        <h3>Program (current block highlighted)</h3>
+        <div class="prog" id="prog" aria-label="Controller program"></div>
+        <p>Keys: <span class="kbd">Space</span> play/pause · <span class="kbd">←</span> <span class="kbd">→</span> step.</p>
+      </section>
+
+      <!-- PREFORM -->
+      <section class="pane" id="p-pre" role="tabpanel" aria-labelledby="t-pre" hidden>
+        <h3>Tube sizes (mm)</h3>
+        <table class="dims">
+          <thead><tr><th>Tube</th><th>OD</th><th>ID</th><th>Wall</th></tr></thead>
+          <tbody>
+            <tr><th><i class="sw j"></i>Jacket (main)</th><td><input class="num" id="jOD" type="number" step="0.1" min="1"></td><td><input class="num" id="jID" type="number" step="0.1" min="0.1"></td><td class="w" id="jW"></td></tr>
+            <tr><th><i class="sw p"></i>Primary</th><td><input class="num" id="pOD" type="number" step="0.1" min="1"></td><td><input class="num" id="pID" type="number" step="0.1" min="0.1"></td><td class="w" id="pW"></td></tr>
+            <tr><th><i class="sw s"></i>Secondary</th><td><input class="num" id="sOD" type="number" step="0.1" min="1"></td><td><input class="num" id="sID" type="number" step="0.1" min="0.1"></td><td class="w" id="sW"></td></tr>
+            <tr><th><i class="sw t"></i>Tertiary</th><td><input class="num" id="tOD" type="number" step="0.1" min="0.5"></td><td><input class="num" id="tID" type="number" step="0.1" min="0.1"></td><td class="w" id="tW"></td></tr>
+          </tbody>
+        </table>
+        <div class="row"><label for="Lin">Length</label><input class="num" id="Lin" type="number" step="10" min="300" max="2000"><span class="kbd">mm</span><span style="flex:1"></span><label>Primaries N</label><b id="nOut" style="font-family:var(--f-mono)">5</b></div>
+        <canvas id="design" width="360" height="360" aria-label="Dimensioned preform section"></canvas>
+        <h3>Computed</h3>
+        <dl class="kv" id="kv"></dl>
+        <h3>Checks</h3>
+        <ul class="checks" id="checks"></ul>
+        <h3>Sag of the outer tube (estimate)</h3>
+        <table class="tbl" id="sagT"></table>
+        <p>Clamped–clamped beam, fused silica (E = 72 GPa, ρ = 2200 kg/m³). The outer tube carries the weight of the tubes lying inside it. Femtosecond focus depth is a few tens of µm, so the head also follows the measured height map.</p>
+      </section>
+
+      <!-- MACHINE -->
+      <section class="pane" id="p-mac" role="tabpanel" aria-labelledby="t-mac" hidden>
+        <p>A lathe-style layout on a granite bed. The tube assembly turns on a horizontal axis between two synchronized rotary axes. The laser stays fixed and its beam is relayed by mirrors to a light focusing head that travels along the tube underneath it.</p>
+        <h3>Main units</h3>
+        <ol class="bom">
+          <li><b>Femtosecond laser, fixed on a rear stand</b><span>GZTECH S-50-1030-F2 · 1030 nm · ≤ 50 W at 1 MHz · ≤ 500 µJ · 500 fs–8 ps · M² &lt; 1.3 · Ø2.5 mm beam · 738 × 370 × 143 mm, &lt; 55 kg · water-cooled</span></li>
+          <li><b>Beam delivery</b><span>Laser on a rear stand below bed level. Safety shutter → 3× expander (Ø2.5 → Ø7.5 mm) → periscope M1/M2 lifts the beam → M3 sends it along X behind the work axis</span></li>
+          <li><b>Flying focus head on X carriage</b><span>M4 turns the beam towards the axis, dichroic M5 turns it up, a Z stage beside the lens carries a long-working-distance objective (WD ≈ 20 mm). Coaxial camera below M5, confocal height sensor beside the lens.</span></li>
+          <li><b>X axis</b><span>Linear-motor stage on the granite, weld stroke = tube length − 2 × end margin (1,080 mm), drag chain at the front</span></li>
+          <li><b>A1 rotary indexer (headstock)</b><span>Servo + zero-backlash harmonic drive + direct encoder, 3-jaw pneumatic chuck with PEEK soft jaws, dial ring for visual check</span></li>
+          <li><b>A2 synchronized tailstock</b><span>Second rotary axis geared electronically to A1 so the 1.2 m glass never twists; on a W slide for length setting, axially floating</span></li>
+          <li><b>Alignment supports ×3</b><span>Overhead pneumatic grippers with PTFE V-rollers. They straighten the outer tube, let it turn during indexing, and lift clear for loading. The head passes underneath.</span></li>
+          <li><b>End alignment fixtures</b><span>Stage 1–2: wedge plugs press the inner tube onto the contact line. Stage 3: spider index plate, hub pushes each primary onto the jacket wall, spokes set the θ pitch.</span></li>
+          <li><b>Controller + HMI</b><span>EtherCAT motion controller (X, Z, Y fine, A1, A2), laser gate M64/M65, index angle θ as a program parameter</span></li>
+          <li><b>Utilities and safety</b><span>Chiller 20 ± 0.1 °C, &gt; 6 L/min, ≥ 1 kW · 48 VDC supply ≥ 1 kW · Class 4 enclosure with interlocked sliding doors and 1030 nm-rated windows</span></li>
+        </ol>
+        <h3>Approximate envelope</h3>
+        <p>Granite bed 2,300 × 1,180 mm, spindle axis 340 mm above the granite, about 1,240 mm above the floor. Laser stand, chiller and electrical cabinet behind; load table in front.</p>
+        <h3>Cycle time estimate (real machine)</h3>
+        <div class="row"><label for="vWeld">Weld speed</label><input class="num" id="vWeld" type="number" min="0.5" max="200" step="0.5" value="10"><span class="kbd">mm/s</span><span style="color:var(--faint);font-size:12px">placeholder until weld trials</span></div>
+        <table class="tbl" id="ctT"></table>
+        <p>Includes one height-map scan per seam at 50 mm/s and manual loading times (90 s load, 45 s unload per part; 4 min to fill the jacket). The animation itself is compressed.</p>
+      </section>
+
+      <!-- NOTES -->
+      <section class="pane" id="p-not" role="tabpanel" aria-labelledby="t-not" hidden>
+        <div class="note"><h4>Primary pitch radius is 18.5 mm, not 20.5 mm</h4><p>A primary touching the jacket wall has its centre at jacket ID/2 − primary OD/2 = 28.5 − 10 = <b>18.5 mm</b>. At the 20.5 mm in the drawing it would cut 2 mm into the jacket wall. At 18.5 mm neighbouring primaries are 1.75 mm apart and the open core is Ø17 mm.</p></div>
+        <div class="note"><h4>θ = 60° needs smaller primaries</h4><p>Six tubes at 60° fit in a 57 mm bore only up to OD 19.0 mm. With 20 mm primaries they overlap by 1.5 mm. The Preform tab recalculates this for any θ.</p></div>
+        <div class="note"><h4>The laser box stays still</h4><p>The S-50-1030-F2 is a single 55 kg box. Moving it 1.1 m per seam would load the axis and its water lines for no gain. It sits on a stand behind the bed, below the granite top, and a periscope lifts the beam. Only two mirrors, a Z stage and the objective travel. The 3× expander keeps the beam size steady over the 1.1 m change in path length.</p></div>
+        <div class="note"><h4>Weld from below, at 6 o'clock</h4><p>An inner tube lies on the bottom of the tube around it, so gravity keeps the contact line closed along the full length. Fused silica is transparent at 1030 nm, and the femtosecond pulses only melt glass at the focus on the interface, so the beam comes up through the outer wall. Holding a tertiary against a top wall instead would fight a sag of about 1.3 mm between clamped ends.</p></div>
+        <div class="note"><h4>Drive both ends</h4><p>A1 and A2 index together under electronic gearing. If only one end turned, the 1.2 m assembly would twist each time it indexed.</p></div>
+        <div class="note"><h4>Index accuracy</h4><p>Placing a seam within ±10 µm on the 28.5 mm jacket wall needs ±0.020° (±72″) on the A axis. A harmonic-drive axis with a direct encoder can hold that.</p></div>
+        <h3>Assumptions</h3>
+        <p>One tertiary per secondary, one secondary per primary, N primaries in the jacket. 60 mm stays unwelded at each end for the chuck jaws and end plates. The weld speed, laser settings and handling times are placeholders until weld trials. Machine dimensions are a starting layout for the engineering drawing.</p>
+        <h3>Open items for the drawing stage</h3>
+        <p>Objective NA and working distance, and focus correction through the curved 1.5 mm wall. The weld window from trials (pulse energy, burst, repetition rate, speed). Manual loading or a loader. Jaw material, enclosure layout and interlocks for Class 4.</p>
+      </section>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   1. CONFIGURATION  — lengths in mm, angles in degrees.
+      Everything else (geometry, timeline, checks) is derived from this.
+   ===================================================================== */
+const CFG = {
+  preform: {                        // drawing "HCF – Final Design"
+    L: 1200,                        // tube length
+    jacket:    { od: 60, id: 57 },  // outer "main" tube
+    primary:   { od: 20, id: 17 },
+    secondary: { od: 12, id: 9 },
+    tertiary:  { od: 4,  id: 2 },
+  },
+  process: {
+    theta: 72,          // A-axis index angle between seams (HMI parameter #100)
+    dir: 1,             // index direction (+1 / -1)
+    endMargin: 60,      // unwelded length at each tube end (chuck jaws + end plates)
+    weldSpeed: 10,      // mm/s — placeholder until weld trials
+    scanSpeed: 50,      // mm/s — confocal height-map pass before each weld
+    fastRepeat: true,   // animate repeated parts faster
+    real: { loadPart: 90, unloadPart: 45, align: 20, loadJacket: 240, unloadJacket: 60, index: 2 } // seconds (estimates)
+  },
+  machine: {
+    AX: 340,            // spindle-axis height above granite surface (granite top = y 0)
+    WD: 20,             // objective working distance: lens tip → tube surface
+    zPark: 250,         // Z park height of the objective tip
+    beamY: 160,         // beam-line height above granite (periscope M1/M2 lifts the beam from the laser)
+    beamZ: -380,        // beam line runs behind the work axis
+    supports: 3,        // overhead V-roller alignment supports
+    floor: -900,        // floor level (granite top 900 mm above floor)
+  },
+  laser: {              // GZTECH S-50-1030-F2 datasheet V1.7 (page 3)
+    L: 738, W: 370, H: 143, baseL: 758, baseW: 399, beamAboveBase: 100, beamFromSide: 50.5, mass: 55,
+    outX: -650,         // x of the output face (beam leaves towards −X)
+    frontZ: -905,       // z of the front (+Z) face; output is 50.5 mm from this face
+    deckY: -175         // laser base sits on a rear stand, below the granite top
+  }
+};
+
+/* =====================================================================
+   2. UTILITIES
+   ===================================================================== */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const lin = t => t;
+const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const D2R = Math.PI / 180;
+const fx = v => (v < 0 ? '-' : '') + Math.abs(v).toFixed(3);
+const f2 = (v, d = 2) => Number(v).toFixed(d);
+const mod360 = a => ((a % 360) + 360) % 360;
+const mmss = s => { s = Math.max(0, s); const m = Math.floor(s / 60); return m + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
+const human = s => s < 90 ? Math.round(s) + ' s' : s < 3600 ? Math.round(s / 60) + ' min' : Math.floor(s / 3600) + ' h ' + String(Math.round((s % 3600) / 60)).padStart(2, '0') + ' min';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const AX = CFG.machine.AX, WD = CFG.machine.WD, ZPARK = CFG.machine.zPark, BY = CFG.machine.beamY, BZ = CFG.machine.beamZ, FLOOR = CFG.machine.floor;
+const FAST = 0.35;
+// loading positions (world, granite top = y 0)
+const CRADLE_Z = 650, CRADLE_TOP = -50, SLOT_TOP = -62, LOAD_Y = AX + 120, LOAD_Z = 208;
+const slotZ = j => 790 + j * 44;
+const STAGE_NAME = { 1: 'Tertiary → Secondary', 2: 'Secondary → Primary', 3: 'Primary → Jacket' };
+
+/* =====================================================================
+   3. MODEL STATE + PREFORM GEOMETRY
+   ===================================================================== */
+const M = {
+  p: JSON.parse(JSON.stringify(CFG.preform)),
+  theta: CFG.process.theta, dir: CFG.process.dir, fast: CFG.process.fastRepeat, weldSpeed: CFG.process.weldSpeed,
+  N: 5, g: null, W: 0, plan: null
+};
+
+function preformGeo(p, N) {
+  const Rj = p.jacket.id / 2, RjO = p.jacket.od / 2, Rp = p.primary.od / 2, rp = p.primary.id / 2;
+  const Rs = p.secondary.od / 2, rs = p.secondary.id / 2, Rt = p.tertiary.od / 2, rt = p.tertiary.id / 2;
+  const Rc = Rj - Rp;            // primary centre radius — tangent to jacket bore
+  const eS = rp - Rs;            // secondary offset from primary centre (outwards)
+  const eT = rs - Rt;            // tertiary offset from secondary centre (outwards)
+  const s = Math.sin(Math.PI / N);
+  const gap = 2 * Rc * s - 2 * Rp;           // clearance between neighbouring primaries
+  const core = 2 * (Rc - Rp);                 // inscribed core diameter
+  const odMax = 2 * Rj * s / (1 + s);         // largest primary OD that fits N tubes
+  return { Rj, RjO, Rp, rp, Rs, rs, Rt, rt, Rc, eS, eT, gap, core, odMax, N };
+}
+function recompute() {
+  M.N = clamp(Math.round(360 / M.theta), 2, 15);
+  M.g = preformGeo(M.p, M.N);
+  M.W = M.p.L - 2 * CFG.process.endMargin;
+}
+const radii = id => { const g = M.g, c = id[0]; return c === 'J' ? [g.RjO, g.Rj] : c === 'P' ? [g.Rp, g.rp] : c === 'S' ? [g.Rs, g.rs] : [g.Rt, g.rt]; };
+const surfR = st => st.stage === 1 ? M.g.Rs : st.stage === 2 ? M.g.Rp : M.g.RjO;   // outer surface hit by beam
+const focusR = st => st.stage === 1 ? M.g.rs : st.stage === 2 ? M.g.rp : M.g.Rj;   // interface (inner wall) = focus
+
+/* =====================================================================
+   4. PROCESS PLAN (timeline)
+   Each step: {t0, dur, fn(st,u)} — fn writes absolute values, so the
+   state at any time is rebuilt by replaying steps from the start.
+   ===================================================================== */
+function initialState() {
+  const st = { xc: -M.W / 2, zf: ZPARK, A: 0, jaw: 1, sup: 1, door: 0, laser: 0, scan: 0, align: 0, clampR: M.g.Rs,
+    stage: 1, k: 0, seam: 0, label: '', cam: 'overview', feed: 'G0', banner: null, bannerU: 0, hold: false, idx: null, done: false,
+    parts: {}, seams: {}, plugs: { pJ: false } };
+  const blank = () => ({ host: 'world', x: 0, y: 0, z: 0, rx: 0, vis: false });
+  for (let k = 0; k < M.N; k++) {
+    st.parts['T' + k] = blank(); st.parts['S' + k] = blank(); st.parts['P' + k] = blank();
+    st.seams['s1_' + k] = { x0: 0, x1: 0, ang: 0, miss: false };
+    st.seams['s2_' + k] = { x0: 0, x1: 0, ang: 0, miss: false };
+    st.seams['s3_' + k] = { x0: 0, x1: 0, ang: 0, miss: false };
+    st.plugs['pS' + k] = false; st.plugs['pP' + k] = false;
+  }
+  st.parts.J = blank();
+  return st;
+}
+function applyStep(s, st, u) {
+  if (s.stage) st.stage = s.stage;
+  if (s.k !== undefined) st.k = s.k;
+  if (s.seam !== undefined) st.seam = s.seam;
+  st.feed = s.feed || 'G0'; st.idx = null;
+  if (s.fn) s.fn(st, u);
+  if (s.label) st.label = s.label;
+  if (s.cam) st.cam = s.cam;
+  st.banner = s.banner || null; st.bannerU = u; st.hold = !!s.hold;
+}
+function polyPath(pts) {
+  const seg = []; let tot = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const d = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) + Math.abs((b.rx || 0) - (a.rx || 0)) * 40 + 1e-6;
+    seg.push(d); tot += d;
+  }
+  return e => {
+    let d = e * tot, i = 0;
+    while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+    const a = pts[i], b = pts[i + 1], f = clamp(d / seg[i], 0, 1);
+    return { x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f), z: lerp(a.z, b.z, f), rx: lerp(a.rx || 0, b.rx || 0, f) };
+  };
+}
+
+function buildPlan() {
+  const g = M.g, N = M.N, L = M.p.L, W = M.W, p = M.p;
+  const steps = []; let t = 0;
+  const cur = initialState();
+  const stageStart = [0, 0, 0, 0], stageEnd = [0, 0, 0, 0];
+  const add = o => { const s = Object.assign({ t0: t, dur: 0 }, o); steps.push(s); t += s.dur; applyStep(s, cur, 1); return s; };
+  const zW = R => AX - R - WD;
+  const cradleY = R => CRADLE_TOP + R, slotY = R => SLOT_TOP + R;
+  const loadPath = R => [{ x: 0, y: cradleY(R), z: CRADLE_Z }, { x: 0, y: LOAD_Y, z: CRADLE_Z }, { x: 0, y: LOAD_Y, z: LOAD_Z }, { x: 0, y: AX, z: 0 }];
+  const rev = a => a.slice().reverse();
+  const FS = Math.round(CFG.process.scanSpeed * 60), FW = Math.round(M.weldSpeed * 60);
+
+  // step-function helpers ("from" values are captured when the step is created)
+  const tw = (to, e = ease) => { const from = {}; for (const k in to) from[k] = cur[k]; return (st, u) => { const v = e(u); for (const k in to) st[k] = from[k] + (to[k] - from[k]) * v; }; };
+  const all = (...fs) => (st, u) => { for (const f of fs) f(st, u); };
+  const show = (id, host, pose) => st => { Object.assign(st.parts[id], { host, vis: true }, pose); };
+  const drop = (id, y, z) => (st, u) => { const q = st.parts[id]; Object.assign(q, { host: 'world', vis: true, x: 0, z, rx: 0 }); q.y = y + 240 * (1 - easeOut(u)); };
+  const slide = (id, host, y, z, rx = 0) => (st, u) => { const q = st.parts[id]; Object.assign(q, { host, vis: true, y, z, rx }); q.x = (L + 60) * (1 - ease(u)); };
+  const path = (id, pts) => { const f = polyPath(pts); return (st, u) => { const q = st.parts[id]; q.host = 'world'; q.vis = true; const r = f(ease(u)); q.x = r.x; q.y = r.y; q.z = r.z; q.rx = r.rx; }; };
+  const plug = (id, on) => st => { st.plugs[id] = on; };
+  const flag = key => (st, u) => { st[key] = u < 1 ? 1 : 0; };
+  const seamGrow = (sid, extra) => (st, u) => { const s = st.seams[sid]; s.x1 = W / 2; s.x0 = W / 2 - W * u; if (extra) Object.assign(s, extra); };
+
+  function weldCycle(meta, R, f, sid, label, note, extra) {
+    add({ ...meta, label: 'Move to seam start · focus on interface', code: `G0 X${fx(-W / 2)} Z${fx(zW(R))} ; focus = inner wall of outer tube`, cam: 'weld', dur: 0.9 * f, fn: tw({ xc: -W / 2, zf: zW(R) }) });
+    add({ ...meta, label: 'Vision: locate contact line', code: "M40 ; coaxial camera finds contact line at 6 o'clock", cam: 'weld', dur: 0.7 * f, fn: flag('align') });
+    add({ ...meta, label: 'Height-map scan (confocal)', code: `M42 G1 X${fx(W / 2)} F${FS} ; height map for Z tracking`, feed: `G1 F${FS}`, cam: 'weld', dur: 1.6 * f, fn: all(tw({ xc: W / 2 }, lin), flag('scan')) });
+    add({ ...meta, label, code: `M64 G1 X${fx(-W / 2)} F${FW} ; LASER ON · ${note}`, feed: `G1 F${FW}`, cam: 'weld', dur: 4.2 * f, fn: all(tw({ xc: -W / 2 }, lin), flag('laser'), seamGrow(sid, extra)) });
+    add({ ...meta, label: 'Laser off · retract Z', code: `M65 G0 Z${fx(ZPARK)} ; laser off`, cam: 'weld', dur: 0.6 * f, fn: tw({ zf: ZPARK }) });
+  }
+
+  /* ---------- STAGE 1 : tertiary into secondary ---------- */
+  stageStart[1] = t;
+  add({ stage: 1, k: 0, seam: 0, label: 'Stage 1 · tertiary into secondary', cam: 'overview', dur: 2.4,
+    banner: { e: 'Stage 1 of 3', t: 'Tertiary → Secondary', s: `One tertiary Ø${p.tertiary.od}/${p.tertiary.id} welded inside each secondary Ø${p.secondary.od}/${p.secondary.id} · ${N} parts` },
+    code: ['; ===== STAGE 1 : TERTIARY -> SECONDARY =====', `; ${N} parts · weld length ${W} mm`], fn: tw({ clampR: g.Rs }) });
+  for (let k = 0; k < N; k++) {
+    const f = M.fast && k > 0 ? FAST : 1, S = 'S' + k, T = 'T' + k, meta = { stage: 1, k, seam: 0 };
+    add({ ...meta, label: `Secondary ${k + 1}/${N} to cradle`, code: `; [A1-${k + 1}] secondary tube -> cradle`, cam: 'load', dur: 0.9 * f, fn: drop(S, cradleY(g.Rs), CRADLE_Z) });
+    add({ ...meta, label: 'Insert tertiary · it settles on the contact line', code: '; insert tertiary (rests on bottom wall)', cam: 'load', dur: 1.6 * f, fn: slide(T, S, -g.eT, 0) });
+    add({ ...meta, label: 'Fit end wedge plugs', code: '; fit end wedge plugs', cam: 'load', dur: 0.5 * f, fn: plug('pS' + k, true) });
+    add({ ...meta, label: 'Open chucks · lift supports · open door', code: 'M11 M21 M31 ; chucks open, supports up, door open', cam: 'load', dur: 0.8 * f, fn: tw({ jaw: 1, sup: 1, door: 1, clampR: g.Rs }) });
+    add({ ...meta, label: 'Transfer to spindle axis', code: '; transfer part -> spindle axis', cam: 'load', dur: 2.2 * f, fn: path(S, loadPath(g.Rs)) });
+    add({ ...meta, fn: show(S, 'spindle', { x: 0, y: 0, z: 0, rx: 0 }) });
+    add({ ...meta, label: 'Clamp ends · supports straighten tube', code: 'M10 M20 M30 ; clamp A1+A2, V-roller supports down, door closed', cam: k === 0 ? 'support' : 'load', dur: 1.0 * f, fn: tw({ jaw: 0, sup: 0, door: 0 }) });
+    weldCycle(meta, g.Rs, f, 's1_' + k, `Weld seam · tertiary ${k + 1} → secondary`, 'weld tertiary to secondary');
+    add({ ...meta, label: 'Unclamp · lift supports', code: 'M11 M21 M31', cam: 'load', dur: 0.8 * f, fn: tw({ jaw: 1, sup: 1, door: 1 }) });
+    add({ ...meta, fn: show(S, 'world', { x: 0, y: AX, z: 0, rx: 0 }) });
+    add({ ...meta, label: 'Unload to cradle', code: '; unload -> cradle', cam: 'load', dur: 1.8 * f, fn: path(S, rev(loadPath(g.Rs))) });
+    add({ ...meta, label: `Store sub-assembly A1-${k + 1} in rack`, code: `; remove plugs, store A1-${k + 1} -> rack slot ${k + 1}`, cam: 'load', dur: 1.2 * f,
+      fn: all(plug('pS' + k, false), path(S, [{ x: 0, y: cradleY(g.Rs), z: CRADLE_Z }, { x: 0, y: cradleY(g.Rs) + 110, z: CRADLE_Z }, { x: 0, y: slotY(g.Rs) + 110, z: slotZ(k) }, { x: 0, y: slotY(g.Rs), z: slotZ(k) }]), tw({ door: 0 })) });
+  }
+  stageEnd[1] = t;
+
+  /* ---------- STAGE 2 : secondary sub-assembly into primary ---------- */
+  stageStart[2] = t;
+  add({ stage: 2, k: 0, seam: 0, label: 'Stage 2 · secondary into primary', cam: 'overview', dur: 2.4,
+    banner: { e: 'Stage 2 of 3', t: 'Secondary → Primary', s: `Each welded A1 goes into a primary Ø${p.primary.od}/${p.primary.id}, tertiary side down · ${N} parts` },
+    code: ['; ===== STAGE 2 : SECONDARY -> PRIMARY =====', `; ${N} parts`] });
+  for (let k = 0; k < N; k++) {
+    const f = M.fast && k > 0 ? FAST : 1, S = 'S' + k, P = 'P' + k, meta = { stage: 2, k, seam: 0 };
+    add({ ...meta, label: `Primary ${k + 1}/${N} to cradle`, code: `; [A2-${k + 1}] primary tube -> cradle`, cam: 'load', dur: 0.9 * f, fn: drop(P, cradleY(g.Rp), CRADLE_Z) });
+    add({ ...meta, label: `Pick A1-${k + 1} from rack`, code: `; pick A1-${k + 1} from rack`, cam: 'load', dur: 1.2 * f,
+      fn: path(S, [{ x: 0, y: slotY(g.Rs), z: slotZ(k) }, { x: 0, y: slotY(g.Rs) + 140, z: slotZ(k) }, { x: L + 60, y: cradleY(g.Rp) - g.eS + 140, z: CRADLE_Z }, { x: L + 60, y: cradleY(g.Rp) - g.eS, z: CRADLE_Z }]) });
+    add({ ...meta, fn: show(S, P, { x: L + 60, y: -g.eS, z: 0, rx: 0 }) });
+    add({ ...meta, label: 'Insert A1 into primary · contact line down', code: '; insert A1 (tertiary side down)', cam: 'load', dur: 1.6 * f, fn: slide(S, P, -g.eS, 0) });
+    add({ ...meta, label: 'Fit end wedge plugs', code: '; fit end wedge plugs', cam: 'load', dur: 0.5 * f, fn: plug('pP' + k, true) });
+    add({ ...meta, label: 'Open chucks · lift supports · open door', code: 'M11 M21 M31', cam: 'load', dur: 0.8 * f, fn: tw({ jaw: 1, sup: 1, door: 1, clampR: g.Rp }) });
+    add({ ...meta, label: 'Transfer to spindle axis', code: '; transfer part -> spindle axis', cam: 'load', dur: 2.2 * f, fn: path(P, loadPath(g.Rp)) });
+    add({ ...meta, fn: show(P, 'spindle', { x: 0, y: 0, z: 0, rx: 0 }) });
+    add({ ...meta, label: 'Clamp ends · supports straighten tube', code: 'M10 M20 M30', cam: k === 0 ? 'support' : 'load', dur: 1.0 * f, fn: tw({ jaw: 0, sup: 0, door: 0 }) });
+    weldCycle(meta, g.Rp, f, 's2_' + k, `Weld seam · A1-${k + 1} → primary`, 'weld secondary to primary');
+    add({ ...meta, label: 'Unclamp · lift supports', code: 'M11 M21 M31', cam: 'load', dur: 0.8 * f, fn: tw({ jaw: 1, sup: 1, door: 1 }) });
+    add({ ...meta, fn: show(P, 'world', { x: 0, y: AX, z: 0, rx: 0 }) });
+    add({ ...meta, label: 'Unload to cradle', code: '; unload -> cradle', cam: 'load', dur: 1.8 * f, fn: path(P, rev(loadPath(g.Rp))) });
+    add({ ...meta, label: `Store sub-assembly A2-${k + 1} in rack`, code: `; remove plugs, store A2-${k + 1} -> rack slot ${k + 1}`, cam: 'load', dur: 1.2 * f,
+      fn: all(plug('pP' + k, false), path(P, [{ x: 0, y: cradleY(g.Rp), z: CRADLE_Z }, { x: 0, y: cradleY(g.Rp) + 110, z: CRADLE_Z }, { x: 0, y: slotY(g.Rp) + 110, z: slotZ(k) }, { x: 0, y: slotY(g.Rp), z: slotZ(k) }]), tw({ door: 0 })) });
+  }
+  stageEnd[2] = t;
+
+  /* ---------- STAGE 3 : primaries into jacket, indexed by θ ---------- */
+  stageStart[3] = t;
+  const th = M.theta, dir = M.dir, pitch = 360 / N;
+  add({ stage: 3, k: 0, seam: 0, label: 'Stage 3 · primaries into jacket', cam: 'overview', dur: 2.6,
+    banner: { e: 'Stage 3 of 3', t: 'Primary → Jacket', s: `${N} primary sub-assemblies inside the jacket Ø${p.jacket.od}/${p.jacket.id} · A axis indexes ${f2(th, 2)}° between seams` },
+    code: ['; ===== STAGE 3 : PRIMARY -> JACKET =====', `#100 = ${th.toFixed(3)} (INDEX ANGLE THETA, DEG)`, `#101 = ${N} (SEAMS PER PREFORM)`] });
+  add({ stage: 3, k: 0, seam: 0, label: 'Jacket tube to cradle', code: '; jacket (main) tube -> cradle', cam: 'load', dur: 1.0, fn: drop('J', cradleY(g.RjO), CRADLE_Z) });
+  for (let k = 0; k < N; k++) {
+    const f = M.fast && k > 0 ? 0.5 : 1, P = 'P' + k, meta = { stage: 3, k, seam: 0 };
+    const ph = k * pitch * D2R, yk = -g.Rc * Math.cos(ph), zk = g.Rc * Math.sin(ph), rxk = -ph;
+    add({ ...meta, label: `Pick A2-${k + 1} for position ${f2(k * pitch, 1)}°`, code: `; pick A2-${k + 1} -> jacket position ${f2(k * pitch, 2)} deg`, cam: 'load', dur: 1.0 * f,
+      fn: path(P, [{ x: 0, y: slotY(g.Rp), z: slotZ(k), rx: 0 }, { x: 0, y: slotY(g.Rp) + 130, z: slotZ(k), rx: 0 }, { x: L + 60, y: cradleY(g.RjO) + yk + 130, z: CRADLE_Z + zk, rx: rxk }, { x: L + 60, y: cradleY(g.RjO) + yk, z: CRADLE_Z + zk, rx: rxk }]) });
+    add({ ...meta, fn: show(P, 'J', { x: L + 60, y: yk, z: zk, rx: rxk }) });
+    add({ ...meta, label: `Insert A2-${k + 1} into jacket`, code: `; insert A2-${k + 1}, contact line outward`, cam: 'load', dur: 1.1 * f, fn: slide(P, 'J', yk, zk, rxk) });
+  }
+  add({ stage: 3, k: N - 1, seam: 0, label: 'Fit spider index plates', code: '; fit spider plates: hub pushes primaries onto jacket wall', cam: 'load', dur: 0.7, fn: plug('pJ', true) });
+  add({ stage: 3, k: 0, seam: 0, label: 'Open chucks · lift supports · open door', code: 'M11 M21 M31', cam: 'load', dur: 0.8, fn: tw({ jaw: 1, sup: 1, door: 1, clampR: g.RjO }) });
+  add({ stage: 3, k: 0, seam: 0, label: 'Transfer jacket assembly to spindle', code: '; transfer preform -> spindle axis', cam: 'load', dur: 2.4, fn: path('J', loadPath(g.RjO)) });
+  add({ stage: 3, fn: show('J', 'spindle', { x: 0, y: 0, z: 0, rx: 0 }) });
+  add({ stage: 3, k: 0, seam: 0, label: 'Clamp ends · supports align jacket', code: 'M10 M20 M30', cam: 'support', dur: 1.0, fn: tw({ jaw: 0, sup: 0, door: 0 }) });
+  add({ stage: 3, k: 0, seam: 0, label: 'Reference A1 + A2', code: 'G28 A0 ; reference A1 + A2 (synchronized)', cam: 'index', dur: 0.8, fn: tw({ A: 0 }) });
+  let A = 0;
+  for (let m = 0; m < N; m++) {
+    const f = M.fast && m >= 2 ? 0.6 : 1, meta = { stage: 3, k: m, seam: m };
+    if (m > 0) {
+      const A0 = A, A1 = m * th * dir; A = A1;
+      add({ ...meta, label: `Index A ${dir > 0 ? '+' : '−'}${f2(th, 3)}° → ${f2(mod360(A1), 3)}°`, code: `G91 G0 A${dir > 0 ? '' : '-'}${th.toFixed(3)} ; index -> A = ${mod360(A1).toFixed(3)}`, cam: 'index', dur: 1.8 * f,
+        fn: all(tw({ A: A1 }), (st, u) => { st.idx = { from: A0, to: A1, u }; }) });
+    }
+    const aLoc = mod360(A), near = Math.round(aLoc / pitch), kk = near % N, err = Math.abs(aLoc - near * pitch) * D2R * g.Rj;
+    weldCycle(meta, g.RjO, f, 's3_' + m, err > 0.05 ? `Weld seam ${m + 1}/${N} · misses primary ${kk + 1} by ${f2(err, 2)} mm` : `Weld seam ${m + 1}/${N} · primary ${kk + 1} → jacket`, `seam ${m + 1}/${N}`, { ang: aLoc, miss: err > 0.05, err, kk });
+  }
+  const Ah = dir > 0 ? Math.ceil(A / 360 - 1e-9) * 360 : Math.floor(A / 360 + 1e-9) * 360;
+  const Alast = A;
+  if (Math.abs(Ah - Alast) > 1e-6) add({ stage: 3, k: N - 1, seam: N - 1, label: 'Return A to 0°', code: `G90 G0 A${fx(Ah)} ; home (= 0 deg)`, cam: 'index', dur: 1.6, fn: all(tw({ A: Ah }), (st, u) => { st.idx = { from: Alast, to: Ah, u }; }) });
+  add({ stage: 3, label: 'Unclamp · lift supports', code: 'M11 M21 M31', cam: 'load', dur: 0.8, fn: tw({ jaw: 1, sup: 1, door: 1 }) });
+  add({ stage: 3, fn: show('J', 'world', { x: 0, y: AX, z: 0, rx: 0 }) });
+  add({ stage: 3, label: 'Unload preform to cradle', code: '; unload preform -> cradle', cam: 'load', dur: 2.2, fn: all(path('J', rev(loadPath(g.RjO))), tw({ zf: ZPARK })) });
+  add({ stage: 3, label: 'Preform complete', code: ['M30 ; end of program', '; preform ready for draw tower'], cam: 'finale', dur: 3.2, hold: true,
+    banner: { e: 'Complete', t: 'Preform assembled', s: `${N} primaries · ${3 * N} welded seams · θ = ${f2(th, 2)}°` }, fn: all(tw({ door: 0 }), st => { st.done = true; }) });
+  stageEnd[3] = t;
+
+  // map: step index -> index of the step whose code line is current
+  const owner = []; let last = 0;
+  steps.forEach((s, i) => { if (s.code) last = i; owner[i] = last; });
+  return { steps, total: t, stageStart, stageEnd, owner };
+}
+
+function evaluate(T) {
+  const st = initialState(), steps = M.plan.steps;
+  let idx = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]; if (s.t0 > T + 1e-9) break;
+    const u = s.dur > 0 ? Math.min(1, (T - s.t0) / s.dur) : 1;
+    applyStep(s, st, u); idx = i;
+    if (u < 1) break;
+  }
+  st.stepIdx = idx;
+  return st;
+}
+
+/* =====================================================================
+   5. SECTION VIEW (2D canvas) — used for the inset and the HMI screen
+   ===================================================================== */
+const TUBE_COL = { J: '#d4e4ee', P: '#b4c3cf', S: '#6aa8ff', T: '#5fd38d' };
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const mMul = (A, B) => ({ a: A.a * B.a + A.b * B.c, b: A.a * B.b + A.b * B.d, c: A.c * B.a + A.d * B.c, d: A.c * B.b + A.d * B.d, e: A.a * B.e + A.b * B.f + A.e, f: A.c * B.e + A.d * B.f + A.f });
+const mRot = (r, y = 0, z = 0) => ({ a: Math.cos(r), b: -Math.sin(r), c: Math.sin(r), d: Math.cos(r), e: y, f: z });
+const mAp = (m, y, z) => [m.a * y + m.b * z + m.e, m.c * y + m.d * z + m.f];
+
+function seamPoint(sid, s) {
+  const g = M.g;
+  if (sid[1] === '1') return [-g.rs, 0];
+  if (sid[1] === '2') return [-g.rp, 0];
+  const a = s.ang * D2R; return [-g.Rj * Math.cos(a), g.Rj * Math.sin(a)];
+}
+function seamHost(sid) { const k = sid.split('_')[1]; return sid[1] === '1' ? 'S' + k : sid[1] === '2' ? 'P' + k : 'J'; }
+
+function drawSection(cv, st, now) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = cv.clientWidth || 232, h = cv.clientHeight || 232;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.fillStyle = '#090d11'; c.fillRect(0, 0, w, h);
+  // faint grid
+  c.strokeStyle = 'rgba(76,195,219,0.06)'; c.lineWidth = 1;
+  for (let i = 0; i <= w; i += 16) { c.beginPath(); c.moveTo(i + .5, 0); c.lineTo(i + .5, h); c.stroke(); }
+  for (let i = 0; i <= h; i += 16) { c.beginPath(); c.moveTo(0, i + .5); c.lineTo(w, i + .5); c.stroke(); }
+
+  let root = null, where = '';
+  for (const id in st.parts) { const q = st.parts[id]; if (q.vis && q.host === 'spindle') { root = id; where = 'spindle'; } }
+  if (!root) for (const id in st.parts) { const q = st.parts[id]; if (q.vis && q.host === 'world' && Math.abs(q.z - CRADLE_Z) < 2 && Math.abs(q.x) < 2) { root = id; where = 'cradle'; } }
+  const mono = '600 10px "JetBrains Mono", ui-monospace, monospace';
+  c.font = mono; c.textBaseline = 'top';
+  if (!root) {
+    c.fillStyle = '#5e6d7a'; c.textAlign = 'center'; c.fillText('SPINDLE EMPTY', w / 2, h / 2 - 6); c.textAlign = 'left';
+    c.fillStyle = '#8a99a7'; c.fillText('A ' + mod360(st.A).toFixed(3) + '°', 8, 8);
+    return;
+  }
+  const [Ro] = radii(root);
+  const sc = Math.min(w, h) * 0.33 / Ro, cx = w / 2, cy = h / 2 + 4;
+  const Arad = where === 'spindle' ? st.A * D2R : 0, xs = where === 'spindle' ? st.xc : 0;
+  const toC = (y, z) => [cx + z * sc, cy - y * sc];
+  const L = M.p.L;
+
+  // pitch circle for the jacket
+  if (root === 'J') { c.setLineDash([3, 4]); c.strokeStyle = 'rgba(138,153,167,0.35)'; c.beginPath(); c.arc(cx, cy, M.g.Rc * sc, 0, Math.PI * 2); c.stroke(); c.setLineDash([]); }
+
+  const drawPart = (id, m, xLocal) => {
+    const [ro, ri] = radii(id), col = TUBE_COL[id[0]];
+    const [y0, z0] = mAp(m, 0, 0), [X, Y] = toC(y0, z0);
+    c.beginPath(); c.arc(X, Y, ro * sc, 0, Math.PI * 2); c.arc(X, Y, ri * sc, 0, Math.PI * 2, true);
+    c.fillStyle = rgba(col, 0.28); c.fill();
+    c.lineWidth = 1.2; c.strokeStyle = col; c.beginPath(); c.arc(X, Y, ro * sc, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.arc(X, Y, Math.max(0.5, ri * sc), 0, Math.PI * 2); c.stroke();
+    for (const cid in st.parts) {
+      const q = st.parts[cid]; if (!q.vis || q.host !== id) continue;
+      if (Math.abs(xLocal - q.x) > L / 2) continue;
+      drawPart(cid, mMul(m, mRot(q.rx, q.y, q.z)), xLocal - q.x);
+    }
+    if (root === 'J' && id[0] === 'P' && st.parts[id].host === 'J') {
+      const k = +id.slice(1), dirv = Math.hypot(y0, z0) || 1, rr = Math.hypot(y0, z0) - M.g.Rp * 0.55;
+      const [lx, ly] = toC(y0 / dirv * rr, z0 / dirv * rr);
+      c.fillStyle = '#8a99a7'; c.font = '600 9px "JetBrains Mono", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(String(k + 1), lx, ly); c.textAlign = 'left'; c.textBaseline = 'top'; c.font = mono;
+    }
+    // seams on this part
+    for (const sid in st.seams) {
+      if (seamHost(sid) !== id) continue;
+      const s = st.seams[sid]; if (s.x1 - s.x0 < 0.01) continue;
+      const [py, pz] = seamPoint(sid, s), [wy, wz] = mAp(m, py, pz), [X2, Y2] = toC(wy, wz);
+      const here = xLocal >= s.x0 - 1 && xLocal <= s.x1 + 1;
+      c.beginPath(); c.arc(X2, Y2, 3.2, 0, Math.PI * 2);
+      if (here) { c.fillStyle = s.miss ? '#ff6b6b' : '#ffb23a'; c.fill(); } else { c.lineWidth = 1.2; c.strokeStyle = s.miss ? '#ff6b6b' : '#ffb23a'; c.stroke(); }
+    }
+  };
+  drawPart(root, mRot(Arad), xs);
+
+  // 0° reference mark on the outer tube (rotates with A)
+  const rm = Ro * sc + 5, mx = cx + rm * Math.sin(Arad), my = cy - rm * Math.cos(Arad);
+  c.fillStyle = '#4cc3db'; c.beginPath();
+  c.moveTo(cx + (rm - 5) * Math.sin(Arad), cy - (rm - 5) * Math.cos(Arad));
+  c.lineTo(mx + 4 * Math.cos(Arad), my + 4 * Math.sin(Arad)); c.lineTo(mx - 4 * Math.cos(Arad), my - 4 * Math.sin(Arad)); c.fill();
+
+  // index arc
+  if (st.idx) {
+    const a0 = st.idx.from * D2R, a1 = lerp(st.idx.from, st.idx.to, ease(st.idx.u)) * D2R, r = Ro * sc + 14;
+    c.strokeStyle = '#4cc3db'; c.lineWidth = 2; c.beginPath();
+    const n = 30; for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n); const X = cx + r * Math.sin(a), Y = cy - r * Math.cos(a); i ? c.lineTo(X, Y) : c.moveTo(X, Y); }
+    c.stroke();
+    const sgn = Math.sign(a1 - a0) || 1, X = cx + r * Math.sin(a1), Y = cy - r * Math.cos(a1), tx = Math.cos(a1) * sgn, ty = Math.sin(a1) * sgn;
+    c.fillStyle = '#4cc3db'; c.beginPath(); c.moveTo(X + tx * 7, Y + ty * 7); c.lineTo(X - ty * 4, Y + tx * 4); c.lineTo(X + ty * 4, Y - tx * 4); c.fill();
+    c.font = '600 11px "JetBrains Mono", monospace'; c.fillText((st.idx.to - st.idx.from > 0 ? '+' : '') + f2(st.idx.to - st.idx.from, 2) + '°', 8, h - 34); c.font = mono;
+  }
+
+  // focus marker + beam from below
+  if (where === 'spindle') {
+    const fy = cy + focusR(st) * sc, sy = cy + surfR(st) * sc;
+    const on = st.laser > 0.5;
+    c.strokeStyle = on ? '#ff4769' : 'rgba(255,71,105,0.45)'; c.lineWidth = on ? 2 : 1.2;
+    c.beginPath(); c.moveTo(cx, h - 4); c.lineTo(cx, sy + 2); c.stroke();
+    c.beginPath(); c.moveTo(cx - 5, sy + 8); c.lineTo(cx, sy + 2); c.lineTo(cx + 5, sy + 8); c.stroke();
+    if (on) {
+      const gr = c.createRadialGradient(cx, fy, 0, cx, fy, 14); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,120,150,0.9)'); gr.addColorStop(1, 'rgba(255,71,105,0)');
+      c.fillStyle = gr; c.beginPath(); c.arc(cx, fy, 14 + 2 * Math.sin(now * 0.03), 0, Math.PI * 2); c.fill();
+    }
+    c.strokeStyle = on ? '#fff' : '#ff4769'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(cx - 6, fy); c.lineTo(cx + 6, fy); c.moveTo(cx, fy - 6); c.lineTo(cx, fy + 6); c.stroke();
+    if (st.scan > 0.5) { c.fillStyle = '#5ccf8c'; c.beginPath(); c.arc(cx, sy, 3, 0, Math.PI * 2); c.fill(); }
+    if (st.align > 0.5) { c.strokeStyle = '#4cc3db'; c.setLineDash([2, 3]); c.strokeRect(cx - 12, fy - 12, 24, 24); c.setLineDash([]); }
+  }
+
+  // text
+  c.fillStyle = '#8a99a7'; c.font = mono; c.textAlign = 'left';
+  c.fillText(where === 'spindle' ? 'X ' + (xs >= 0 ? '+' : '') + xs.toFixed(1) : 'CRADLE', 8, 8);
+  c.textAlign = 'right'; c.fillStyle = '#dbe3ea'; c.fillText('A ' + mod360(st.A).toFixed(3) + '°', w - 8, 8);
+  // scale bar
+  const target = 46 / sc, nice = [0.5, 1, 2, 5, 10, 20, 50].find(v => v >= target * 0.6) || 50, bl = nice * sc;
+  c.strokeStyle = '#8a99a7'; c.lineWidth = 1; c.beginPath(); c.moveTo(w - 8 - bl, h - 12); c.lineTo(w - 8, h - 12); c.moveTo(w - 8 - bl, h - 15); c.lineTo(w - 8 - bl, h - 9); c.moveTo(w - 8, h - 15); c.lineTo(w - 8, h - 9); c.stroke();
+  c.fillStyle = '#8a99a7'; c.textBaseline = 'bottom'; c.fillText(nice + ' mm', w - 8, h - 16);
+  c.textAlign = 'left'; c.textBaseline = 'top';
+  const tag = st.stage === 3 ? `SEAM ${Math.min(st.seam + 1, M.N)}/${M.N}` : `PART ${Math.min(st.k + 1, M.N)}/${M.N}`;
+  c.fillStyle = '#5e6d7a'; c.fillText(tag, 8, h - 20);
+}
+
+/* Design drawing for the Preform tab (A = 0, primary 1 at the top like the drawing) */
+function drawDesign(cv) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = cv.clientWidth || 340, h = cv.clientHeight || 340;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.fillStyle = '#090d11'; c.fillRect(0, 0, w, h);
+  const g = M.g, N = M.N, sc = Math.min(w, h) * 0.37 / g.RjO, cx = w / 2, cy = h / 2 + 6;
+  const ring = (X, Y, ro, ri, col) => { c.beginPath(); c.arc(X, Y, ro * sc, 0, 7); c.arc(X, Y, Math.max(0, ri) * sc, 0, 7, true); c.fillStyle = rgba(col, .3); c.fill(); c.strokeStyle = col; c.lineWidth = 1.2; c.beginPath(); c.arc(X, Y, ro * sc, 0, 7); c.stroke(); c.beginPath(); c.arc(X, Y, Math.max(.5, ri * sc), 0, 7); c.stroke(); };
+  ring(cx, cy, g.RjO, g.Rj, TUBE_COL.J);
+  c.setLineDash([3, 4]); c.strokeStyle = 'rgba(138,153,167,.45)'; c.beginPath(); c.arc(cx, cy, g.Rc * sc, 0, 7); c.stroke(); c.setLineDash([]);
+  const pitch = 2 * Math.PI / N;
+  const pts = [];
+  for (let k = 0; k < N; k++) {
+    const a = k * pitch, uy = Math.cos(a), uz = Math.sin(a);           // outward unit vector, k=0 at top
+    const P = [cx + uz * g.Rc * sc, cy - uy * g.Rc * sc];
+    const S = [cx + uz * (g.Rc + g.eS) * sc, cy - uy * (g.Rc + g.eS) * sc];
+    const T = [cx + uz * (g.Rc + g.eS + g.eT) * sc, cy - uy * (g.Rc + g.eS + g.eT) * sc];
+    ring(P[0], P[1], g.Rp, g.rp, TUBE_COL.P); ring(S[0], S[1], g.Rs, g.rs, TUBE_COL.S); ring(T[0], T[1], g.Rt, g.rt, TUBE_COL.T);
+    c.fillStyle = '#ff4769'; c.beginPath(); c.arc(cx + uz * g.Rj * sc, cy - uy * g.Rj * sc, 2.6, 0, 7); c.fill();
+    pts.push(P);
+  }
+  // R dimension to the last primary (left of the top one), θ arc to the right
+  const a1 = pitch, P1 = pts[N - 1];
+  c.strokeStyle = '#4cc3db'; c.fillStyle = '#4cc3db'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(cx, cy); c.lineTo(P1[0], P1[1]); c.stroke();
+  c.beginPath(); c.arc(P1[0], P1[1], 2.2, 0, 7); c.fill();
+  c.font = '600 11px "JetBrains Mono", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const mx = (cx + P1[0]) / 2, my = (cy + P1[1]) / 2;
+  c.save(); c.translate(mx, my); let ang = Math.atan2(P1[1] - cy, P1[0] - cx); if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI; c.rotate(ang);
+  c.fillStyle = '#090d11'; c.fillRect(-34, -16, 68, 13); c.fillStyle = '#4cc3db'; c.fillText('R ' + f2(g.Rc, 2), 0, -9); c.restore();
+  // θ arc between primary 1 and 2
+  c.strokeStyle = '#ffb23a'; c.beginPath(); const ra = g.Rc * sc * 0.42;
+  c.arc(cx, cy, ra, -Math.PI / 2, -Math.PI / 2 + a1); c.stroke();
+  c.beginPath(); c.moveTo(cx, cy); c.lineTo(pts[0][0], pts[0][1]); c.setLineDash([2, 3]); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#ffb23a'; const at = -Math.PI / 2 + a1 / 2; c.fillText(f2(360 / N, 2) + '°', cx + Math.cos(at) * (ra + 18), cy + Math.sin(at) * (ra + 18));
+  // labels
+  c.fillStyle = '#8a99a7'; c.font = '500 11px "JetBrains Mono", monospace';
+  c.fillText(`Jacket Ø${M.p.jacket.od} / Ø${M.p.jacket.id}`, cx, h - 14);
+  c.fillText(`N = ${N} · gap ${f2(g.gap, 2)} · core Ø${f2(g.core, 1)}`, cx, 14);
+  c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  if (g.gap < 0) { c.fillStyle = '#ff6b6b'; c.font = '600 11px "JetBrains Mono", monospace'; c.fillText('PRIMARIES OVERLAP', 10, 34); }
+}
+
+/* =====================================================================
+   6. 3D SCENE (three.js r128)
+   ===================================================================== */
+const R3 = {};
+function webglOK() { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; } }
+const HAS3D = !!window.THREE && webglOK();
+
+function init3D() {
+  const canvas = $('#gl');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.localClippingEnabled = true;
+  const scene = new THREE.Scene();
+  // background gradient
+  const bg = document.createElement('canvas'); bg.width = 2; bg.height = 256; const bx = bg.getContext('2d');
+  const gr = bx.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#1b2530'); gr.addColorStop(0.55, '#121921'); gr.addColorStop(1, '#090c10');
+  bx.fillStyle = gr; bx.fillRect(0, 0, 2, 256);
+  const bgt = new THREE.CanvasTexture(bg); bgt.encoding = THREE.sRGBEncoding; scene.background = bgt;
+  scene.fog = new THREE.Fog(0x0e141a, 7000, 18000);
+  const camera = new THREE.PerspectiveCamera(35, 1, 5, 40000);
+
+  // environment for metal reflections
+  const pm = new THREE.PMREMGenerator(renderer);
+  const env = new THREE.Scene();
+  const eg = new THREE.SphereGeometry(5000, 32, 16), cols = [], pa = eg.attributes.position, c0 = new THREE.Color(0x0b0f13), c1 = new THREE.Color(0x9fb2c2);
+  for (let i = 0; i < pa.count; i++) { const t = (pa.getY(i) / 5000 + 1) / 2; const cc = c0.clone().lerp(c1, Math.pow(t, 1.6)); cols.push(cc.r, cc.g, cc.b); }
+  eg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  env.add(new THREE.Mesh(eg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  for (const [x, z] of [[-1500, -800], [0, -800], [1500, -800], [-1500, 900], [0, 900], [1500, 900]]) {
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(1300, 260), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    pl.position.set(x, 3200, z); pl.rotation.x = Math.PI / 2; env.add(pl);
+  }
+  scene.environment = pm.fromScene(env, 0.03).texture;
+
+  scene.add(new THREE.HemisphereLight(0xcfdbe6, 0x161b20, 0.5));
+  const key = new THREE.DirectionalLight(0xffffff, 1.45);
+  key.position.set(1500, 3400, 2300); key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+  Object.assign(key.shadow.camera, { left: -2600, right: 2600, top: 2600, bottom: -2600, near: 800, far: 9000 });
+  key.shadow.bias = -0.0005; key.shadow.normalBias = 1.2; scene.add(key);
+  const fill = new THREE.DirectionalLight(0x9fc3ff, 0.35); fill.position.set(-2600, 1300, -1600); scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffe0c0, 0.25); rim.position.set(-800, 800, 2800); scene.add(rim);
+
+  const world = new THREE.Group(); scene.add(world);
+  _Y = new THREE.Vector3(0, 1, 0); _d = new THREE.Vector3(); _q = new THREE.Quaternion(); _m4 = new THREE.Object3D(); _v = new THREE.Vector3();
+  Object.assign(R3, { renderer, scene, camera, world, canvas });
+  buildMaterials();
+  buildMachine();
+  buildBeam();
+  R3.ok = true;
+  rebuildParts();
+}
+
+function buildMaterials() {
+  const C = h => new THREE.Color(h).convertSRGBToLinear();
+  const std = (hex, rough, metal, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: C(hex), roughness: rough, metalness: metal }, extra || {}));
+  // granite speckle texture
+  const gc = document.createElement('canvas'); gc.width = gc.height = 256; const gx = gc.getContext('2d');
+  gx.fillStyle = '#2a2e33'; gx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2600; i++) { const v = Math.random(); gx.fillStyle = v < .5 ? `rgba(10,12,14,${.3 + Math.random() * .4})` : `rgba(150,160,170,${.08 + Math.random() * .18})`; gx.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2, 1 + Math.random() * 2); }
+  const gt = new THREE.CanvasTexture(gc); gt.wrapS = gt.wrapT = THREE.RepeatWrapping; gt.repeat.set(5, 3); gt.encoding = THREE.sRGBEncoding;
+  const unlit = (hex, op, add) => new THREE.MeshBasicMaterial({ color: C(hex), transparent: op < 1, opacity: op, depthWrite: op >= 1, toneMapped: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
+  R3.C = C;
+  R3.MAT = {
+    floor: std('#1b2228', .92, 0), paint: std('#d5dade', .55, .05), paint2: std('#a9b2ba', .5, .12),
+    granite: new THREE.MeshStandardMaterial({ map: gt, roughness: .78, metalness: 0, color: C('#ffffff') }),
+    alu: std('#c3cad1', .34, .85), dark: std('#2a3036', .45, .55), black: std('#15181b', .55, .25), steel: std('#9aa3ab', .28, .9),
+    amber: std('#e39a2b', .45, .15), ptfe: std('#f1efe8', .72, 0), laser: std('#e7eaed', .38, .12), laserBase: std('#b7bec4', .45, .4),
+    mirror: std('#e9d7a6', .1, 1), lens: std('#4cc3db', .05, .2, { emissive: C('#0d3a44') }), magnet: std('#1d2329', .6, .3), encoder: std('#b9975a', .3, .8),
+    table: std('#7f8a93', .6, .45), yellow: std('#e5b62a', .6, 0), screen: std('#0b1218', .4, .1), glassPanel: new THREE.MeshStandardMaterial({ color: C('#3d5c4a'), transparent: true, opacity: .16, roughness: .1, metalness: .1, depthWrite: false, side: THREE.DoubleSide }),
+    chain: std('#22272c', .7, .1), hose: std('#2f6fa8', .5, .05), hose2: std('#a83a3a', .5, .05),
+    lampG: unlit('#1e4d33', 1), lampA: unlit('#4d3a12', 1), lampR: unlit('#4d1520', 1),
+    weldLine: new THREE.LineBasicMaterial({ color: C('#ffb23a'), toneMapped: false }), missLine: new THREE.LineBasicMaterial({ color: C('#ff4040'), toneMapped: false }),
+    weldMesh: unlit('#ffc35a', 1), missMesh: unlit('#ff4040', 1),
+    beamCore: unlit('#ff4769', .95, true), beamHalo: unlit('#ff2a55', .2, true), beamPath: unlit('#ff6f8c', .32, true),
+    cone: unlit('#ff3b62', .45, true), alignCone: unlit('#4cc3db', .22, true), scanLine: new THREE.LineBasicMaterial({ color: C('#5ccf8c'), toneMapped: false }),
+    hot: new THREE.LineBasicMaterial({ color: C('#fff1c9'), toneMapped: false })
+  };
+  // glass: fresnel rim shader with optional clipping (cut-away)
+  const VS = `#include <clipping_planes_pars_vertex>
+varying vec3 vN; varying vec3 vV;
+void main(){ vec4 mvPosition = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = -mvPosition.xyz; gl_Position = projectionMatrix*mvPosition;
+#include <clipping_planes_vertex>
+}`;
+  const FS = `#include <clipping_planes_pars_fragment>
+uniform vec3 tint; uniform float a0; uniform float a1; varying vec3 vN; varying vec3 vV;
+void main(){
+#include <clipping_planes_fragment>
+ vec3 n = normalize(vN); vec3 v = normalize(vV); float f = 1.0 - abs(dot(n,v)); f = f*f;
+ float a = mix(a0, a1, f); vec3 col = mix(tint*0.62, mix(tint, vec3(1.0), 0.35), f); gl_FragColor = vec4(col, a); }`;
+  const glass = (hex, a0, a1) => { const c = new THREE.Color(hex); return new THREE.ShaderMaterial({ uniforms: { tint: { value: new THREE.Vector3(c.r, c.g, c.b) }, a0: { value: a0 }, a1: { value: a1 } }, vertexShader: VS, fragmentShader: FS, transparent: true, depthWrite: false, side: THREE.DoubleSide, clipping: true }); };
+  const GL = { J: ['#d4e4ee', .05, .6], P: ['#b4c3cf', .07, .65], S: ['#6aa8ff', .12, .8], T: ['#5fd38d', .16, .9] };
+  R3.GLASS = {}; R3.GLASS_CUT = {}; R3.RING = {}; R3.RING_CUT = {};
+  for (const k in GL) {
+    R3.GLASS[k] = glass(...GL[k]); R3.GLASS_CUT[k] = glass(...GL[k]);
+    R3.RING[k] = new THREE.LineBasicMaterial({ color: C(TUBE_COL[k]), transparent: true, opacity: .85 }); R3.RING_CUT[k] = R3.RING[k].clone();
+  }
+  // cut-away: remove the front half (z > 0) of tubes that sit on the machine axis
+  R3.clip = [new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)];
+}
+function setCut(on) {
+  for (const m of [...Object.values(R3.GLASS_CUT), ...Object.values(R3.RING_CUT)]) { m.clippingPlanes = on ? R3.clip : null; m.needsUpdate = true; }
+}
+function onSpindle(st, id) { let h = st.parts[id].host, n = 0; while (h !== 'world' && h !== 'spindle' && n++ < 6) h = st.parts[h].host; return h === 'spindle'; }
+
+/* ---- geometry helpers ---- */
+function mesh(geo, mat, parent, cast = true, recv = true) { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = recv; if (parent) parent.add(m); return m; }
+function boxMM(x0, x1, y0, y1, z0, z1, mat, parent) { const m = mesh(new THREE.BoxGeometry(Math.abs(x1 - x0), Math.abs(y1 - y0), Math.abs(z1 - z0)), mat, parent); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); return m; }
+function cylX(r, x0, x1, y, z, mat, parent, seg = 32) { const g = new THREE.CylinderGeometry(r, r, Math.abs(x1 - x0), seg); g.rotateZ(-Math.PI / 2); const m = mesh(g, mat, parent); m.position.set((x0 + x1) / 2, y, z); return m; }
+function cylY(r, y0, y1, x, z, mat, parent, seg = 32) { const m = mesh(new THREE.CylinderGeometry(r, r, Math.abs(y1 - y0), seg), mat, parent); m.position.set(x, (y0 + y1) / 2, z); return m; }
+function cylZ(r, z0, z1, x, y, mat, parent, seg = 32) { const g = new THREE.CylinderGeometry(r, r, Math.abs(z1 - z0), seg); g.rotateX(Math.PI / 2); const m = mesh(g, mat, parent); m.position.set(x, y, (z0 + z1) / 2); return m; }
+function rrect(w, h, r) { const s = new THREE.Shape(), x = -w / 2, y = -h / 2; r = Math.max(.01, Math.min(r, w / 2 - .01, h / 2 - .01)); s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h); s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s; }
+function rbox(x0, x1, y0, y1, z0, z1, r, mat, parent) {
+  const w = x1 - x0, h = y1 - y0, d = z1 - z0, b = Math.min(r, 6, d / 4, w / 4, h / 4);
+  const g = new THREE.ExtrudeGeometry(rrect(w - 2 * b, h - 2 * b, Math.max(.5, r - b)), { depth: d - 2 * b, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 2, curveSegments: 5 });
+  g.translate(0, 0, -(d - 2 * b) / 2);
+  const m = mesh(g, mat, parent); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); return m;
+}
+function mirrorMount(p, n, baseY, parent, label) {
+  const MAT = R3.MAT, g = new THREE.Group(); g.position.copy(p); parent.add(g);
+  const nn = n.clone().normalize(), q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), nn);
+  const disc = mesh(new THREE.CylinderGeometry(15, 15, 5, 32), MAT.mirror, g); disc.quaternion.copy(q);
+  const back = mesh(new THREE.CylinderGeometry(20, 20, 9, 32), MAT.dark, g); back.quaternion.copy(q); back.position.copy(nn.clone().multiplyScalar(-7));
+  if (baseY !== null) {
+    const bp = nn.clone().multiplyScalar(-9);
+    cylY(6, baseY - p.y, bp.y - 14, bp.x, bp.z, MAT.steel, g, 16);
+    boxMM(bp.x - 16, bp.x + 16, baseY - p.y, baseY - p.y + 6, bp.z - 16, bp.z + 16, MAT.dark, g);
+  }
+  return g;
+}
+
+/* ---- machine ---- */
+function buildMachine() {
+  const W = R3.world, MAT = R3.MAT, LZ = CFG.laser;
+  // floor + grid + safety tape
+  const floor = mesh(new THREE.PlaneGeometry(16000, 16000), MAT.floor, R3.scene, false, true); floor.rotation.x = -Math.PI / 2; floor.position.y = FLOOR;
+  const grid = new THREE.GridHelper(16000, 32, 0x2b3742, 0x1d2630); grid.position.y = FLOOR + .6; grid.material.transparent = true; grid.material.opacity = .55; R3.scene.add(grid);
+  for (const [x0, x1, z0, z1] of [[-2050, 2050, 1480, 1530], [-2050, 2050, -1700, -1650], [-2050, -2000, -1700, 1530], [2000, 2050, -1700, 1530]]) boxMM(x0, x1, FLOOR, FLOOR + 1.5, z0, z1, MAT.yellow, R3.scene).castShadow = false;
+
+  // base cabinet, feet, granite
+  rbox(-1130, 1130, -860, -205, -860, 280, 16, MAT.paint, W);
+  for (const x of [-385, 385]) boxMM(x - 2, x + 2, -835, -230, 280, 283, MAT.dark, W);
+  for (const x of [-760, 0, 760]) boxMM(x - 70, x + 70, -470, -455, 280, 292, MAT.dark, W);
+  for (const x of [-1080, 0, 1080]) for (const z of [-810, 230]) cylY(38, FLOOR, -860, x, z, MAT.dark, W, 20);
+  boxMM(-1150, 1150, -205, 0, -880, 300, MAT.granite, W);
+
+  // ---- laser on a rear stand below bed level (GZTECH S-50-1030-F2, datasheet page 3) ----
+  const LZ0 = LZ.deckY;
+  boxMM(-900, 140, LZ0 - 25, LZ0, -1300, -890, MAT.dark, W);                                         // stand top
+  for (const x of [-880, 120]) for (const z of [-1280, -910]) boxMM(x - 20, x + 20, FLOOR, LZ0 - 25, z - 20, z + 20, MAT.dark, W);
+  boxMM(-880, 120, FLOOR + 120, FLOOR + 140, -1280, -910, MAT.dark, W);
+  const lx0 = LZ.outX, lx1 = LZ.outX + LZ.L, lz1 = LZ.frontZ, lz0 = LZ.frontZ - LZ.W, ly0 = LZ0;
+  boxMM(lx0 - 10, lx1 + 10, ly0, ly0 + 12, lz0 - 14.5, lz1 + 14.5, MAT.laserBase, W);
+  rbox(lx0, lx1, ly0 + 12, ly0 + LZ.H, lz0, lz1, 6, MAT.laser, W);
+  boxMM(lx0 + 30, lx1 - 40, ly0 + LZ.H, ly0 + LZ.H + 1, lz1 - 22, lz1 - 18, MAT.dark, W);           // top groove
+  boxMM(lx1 - 70, lx1 - 20, ly0 + LZ.H, ly0 + LZ.H + 1, lz0 + 160, lz0 + 200, MAT.dark, W);          // label plate
+  const bzOut = lz1 - LZ.beamFromSide, byOut = ly0 + LZ.beamAboveBase;                               // output window
+  cylX(21, lx0 - 4, lx0, byOut, bzOut, MAT.dark, W, 32); cylX(9, lx0 - 6, lx0 - 4, byOut, bzOut, MAT.lens, W, 24);
+  for (const zf of [lz0 - 13, lz1 + 13]) for (const xh of [lx0 + 190, lx0 + 560]) {               // carry handles
+    cylX(5, xh - 55, xh + 55, ly0 + 80, zf, MAT.dark, W, 12);
+    for (const d of [-55, 55]) cylZ(5, Math.min(zf, zf + (zf < lz0 ? 13 : -13)), Math.max(zf, zf + (zf < lz0 ? 13 : -13)), xh + d, ly0 + 80, MAT.dark, W, 12);
+  }
+  for (const [y, z, r] of [[ly0 + 60, lz0 + 120, 9], [ly0 + 60, lz0 + 160, 9], [ly0 + 105, lz0 + 260, 12], [ly0 + 105, lz0 + 320, 8]]) cylX(r, lx1, lx1 + 18, y, z, MAT.steel, W, 16);
+  boxMM(lx0 - 1, lx0, ly0 + 30, ly0 + 52, lz0 + 30, lz0 + 52, MAT.yellow, W);
+  R3.laserAnchor = new THREE.Vector3((lx0 + lx1) / 2 + 120, ly0 + LZ.H, (lz0 + lz1) / 2);
+
+  // ---- beam delivery (fixed): shutter → 3× expander → periscope M1 (up) → M2 (forward) → M3 (along X) ----
+  const PX = -850;
+  boxMM(-702, -668, byOut - 22, byOut + 22, bzOut - 21, bzOut + 21, MAT.black, W);                    // shutter
+  boxMM(-692, -680, byOut + 22, byOut + 23.5, bzOut - 21, bzOut + 21, MAT.amber, W);
+  cylX(14, -760, -712, byOut, bzOut, MAT.alu, W); cylX(22, -808, -760, byOut, bzOut, MAT.alu, W); cylX(23, -770, -760, byOut, bzOut, MAT.dark, W); // 3× expander
+  cylY(7, LZ0, byOut - 20, -760, bzOut, MAT.steel, W, 16); boxMM(-790, -730, LZ0, LZ0 + 6, bzOut - 30, bzOut + 30, MAT.dark, W);
+  R3.OUT = new THREE.Vector3(lx0 - 6, byOut, bzOut);
+  R3.EXP_IN = new THREE.Vector3(-712, byOut, bzOut); R3.EXP_OUT = new THREE.Vector3(-808, byOut, bzOut);
+  R3.M1 = new THREE.Vector3(PX, byOut, bzOut); R3.M2 = new THREE.Vector3(PX, BY, bzOut); R3.M3 = new THREE.Vector3(PX, BY, BZ);
+  boxMM(PX - 20, PX + 20, LZ0, BY + 40, bzOut - 70, bzOut - 40, MAT.alu, W);                          // periscope column
+  mirrorMount(R3.M1, new THREE.Vector3(1, 1, 0), null, W);
+  mirrorMount(R3.M2, new THREE.Vector3(0, -1, 1), null, W);
+  for (const y of [byOut, BY]) boxMM(PX - 8, PX + 8, y - 8, y + 8, bzOut - 40, bzOut - 14, MAT.dark, W);
+  cylY(16, byOut + 18, BY - 18, PX, bzOut, MAT.glassPanel, W, 20);                                   // beam tube
+  mirrorMount(R3.M3, new THREE.Vector3(1, 0, -1), 0, W);
+  R3.opticsAnchor = new THREE.Vector3(PX, BY + 30, bzOut);
+
+  // ---- X axis: rails, magnet track, encoder, chain tray ----
+  for (const z of [-260, 140]) { boxMM(-690, 690, 0, 28, z - 12, z + 12, MAT.steel, W); for (const x of [-700, 700]) boxMM(x - 10, x + 10, 0, 36, z - 18, z + 18, MAT.dark, W); }
+  boxMM(-680, 680, 0, 14, -110, -10, MAT.magnet, W);
+  boxMM(-680, 680, 0, 6, 158, 166, MAT.encoder, W);
+  boxMM(-320, 780, 0, 6, 205, 245, MAT.dark, W);
+
+  // ---- X carriage with flying optics + Z focus head ----
+  const car = new THREE.Group(); W.add(car); R3.carriage = car;
+  for (const xs of [-70, 70]) for (const zs of [-260, 140]) boxMM(xs - 30, xs + 30, 28, 50, zs - 24, zs + 24, MAT.dark, car);
+  boxMM(-110, 110, 50, 72, -300, 190, MAT.alu, car);
+  boxMM(-40, 40, 50, 72, -420, -300, MAT.alu, car);
+  boxMM(-110, 110, 56, 66, 190, 193, MAT.amber, car);
+  boxMM(-90, 90, 16, 50, -105, -15, MAT.dark, car);
+  boxMM(-20, 20, 50, 70, 190, 236, MAT.dark, car);                    // chain bracket
+  mirrorMount(new THREE.Vector3(0, BY, BZ), new THREE.Vector3(-1, 0, 1), 72, car);   // M4 (flying)
+  boxMM(-112, 70, 72, 86, -70, 70, MAT.dark, car);                   // Y fine slide
+  boxMM(-22, 22, BY - 22, BY + 22, -22, 22, MAT.dark, car);          // M5 dichroic cube
+  cylZ(9, -26, -22, 0, BY, MAT.lens, car, 20); cylY(9, BY + 22, BY + 26, 0, 0, MAT.lens, car, 20);
+  cylY(12, 88, BY - 22, 0, 0, MAT.black, car, 24); cylY(13, 118, 124, 0, 0, MAT.alu, car, 24);   // coaxial camera
+  boxMM(-104, -44, 86, 292, -28, 28, MAT.dark, car);                 // Z column (beside the objective, under the tube)
+  boxMM(-98, -50, 100, 286, 28, 30, MAT.amber, car);
+  const zg = new THREE.Group(); car.add(zg); R3.zGroup = zg;
+  boxMM(-44, -34, -86, -10, -24, 24, MAT.alu, zg);                    // Z slide plate
+  boxMM(-34, -12, -56, -36, -10, 10, MAT.alu, zg);                    // objective holder arm
+  cylY(14, -62, -8, 0, 0, MAT.black, zg, 32); cylY(14.6, -40, -36, 0, 0, MAT.ptfe, zg, 32); cylY(9, -8, 0, 0, 0, MAT.steel, zg, 24);
+  cylY(6, -1, 0.5, 0, 0, MAT.lens, zg, 20);
+  cylY(7, -58, -4, 38, 0, MAT.steel, zg, 16); boxMM(-34, 38, -50, -40, -26, -18, MAT.alu, zg);   // confocal sensor + bracket
+  boxMM(-8, 8, -10, -4, 16, 34, MAT.steel, zg);                                            // air knife
+
+  // drag chain (instanced links)
+  const nL = 50, chain = new THREE.InstancedMesh(new THREE.BoxGeometry(24, 16, 34), MAT.chain, nL); chain.castShadow = true; W.add(chain);
+  R3.chain = chain; R3.chainN = nL;
+
+  // ---- A1 headstock and A2 tailstock (rotary axes) ----
+  const A1 = buildRotary(-1), A2 = buildRotary(1);
+  R3.rotA1 = A1.rot; R3.rotA2 = A2.rot; R3.jawsA1 = A1.jaws; R3.jawsA2 = A2.jaws;
+  for (const z of [-100, 100]) boxMM(650, 1000, 0, 20, z - 14, z + 14, MAT.steel, W);   // W slide under tailstock
+  cylZ(10, 140, 175, 960, 120, MAT.amber, W, 16);
+
+  // spindle frame: parts on the machine axis are children of this group
+  const sp = new THREE.Group(); sp.position.set(0, AX, 0); W.add(sp); R3.spindle = sp;
+
+  // ---- overhead support beam ----
+  for (const x of [-1100, 1100]) boxMM(x - 35, x + 35, 0, AX + 490, -35, 35, MAT.alu, W);
+  boxMM(-1135, 1135, AX + 430, AX + 490, -35, 35, MAT.alu, W);
+  for (const x of [-1136, 1136]) boxMM(x - 2, x + 2, AX + 428, AX + 492, -37, 37, MAT.dark, W);
+  const bc = cylY(16, AX + 490, AX + 530, 1100, 0, R3.MAT.lampR, W, 20); R3.beacon = bc;   // laser-emission beacon
+
+  // ---- load table + cradle ----
+  boxMM(-700, 700, -110, -80, 450, 1160, MAT.table, W);
+  for (const x of [-660, 660]) for (const z of [490, 1120]) boxMM(x - 22, x + 22, FLOOR, -110, z - 22, z + 22, MAT.dark, W);
+  boxMM(-680, 680, -620, -600, 470, 1140, MAT.dark, W);
+  for (const x of [-450, 450]) { boxMM(x - 30, x + 30, -80, CRADLE_TOP, CRADLE_Z - 40, CRADLE_Z + 40, MAT.dark, W); boxMM(x - 31, x + 31, CRADLE_TOP - 1, CRADLE_TOP, CRADLE_Z - 12, CRADLE_Z + 12, MAT.ptfe, W); }
+  R3.rackGroup = new THREE.Group(); W.add(R3.rackGroup);
+
+  // ---- utilities: chiller, PSU, electrical cabinet, light tower, HMI ----
+  rbox(380, 840, FLOOR + 40, -110, -1780, -1220, 18, MAT.paint, W);   // chiller
+  boxMM(400, 820, -650, -260, -1222, -1219, MAT.dark, W);
+  boxMM(540, 680, -230, -170, -1222, -1218, MAT.screen, W); boxMM(545, 675, -225, -175, -1219, -1217.5, MAT.lens, W);
+  for (const x of [420, 800]) for (const z of [-1740, -1260]) cylZ(18, z - 8, z + 8, x, FLOOR + 20, MAT.black, W, 16);
+  const hose = (mat, dz) => { const crv = new THREE.CatmullRomCurve3([new THREE.Vector3(610, -110, -1480 + dz), new THREE.Vector3(600, -30, -1380 + dz), new THREE.Vector3(330, -50, -1200 + dz), new THREE.Vector3(160, -110, -1060 + dz * .5), new THREE.Vector3(106, LZ0 + 60, lz0 + 140 + dz * .4)]); mesh(new THREE.TubeGeometry(crv, 60, 7, 10, false), mat, W); };
+  hose(MAT.hose, 0); hose(MAT.hose2, 40);
+  R3.chillerAnchor = new THREE.Vector3(610, -110, -1500);
+  rbox(920, 1220, FLOOR, -650, -1700, -1400, 10, MAT.paint2, W);    // 48 VDC PSU
+  rbox(1260, 1860, FLOOR, 720, -900, -420, 14, MAT.paint, W);         // electrical cabinet
+  boxMM(1558, 1562, FLOOR + 40, 690, -420, -417, MAT.dark, W);
+  cylZ(26, -420, -400, 1700, 560, MAT.lampR, W, 24);
+  const lt = new THREE.Group(); lt.position.set(1800, 720, -660); W.add(lt);
+  cylY(6, 0, 60, 0, 0, MAT.steel, lt, 12);
+  R3.lamps = [['lampR', 60], ['lampA', 100], ['lampG', 140]].map(([m, y]) => cylY(22, y, y + 38, 0, 0, MAT[m].clone(), lt, 20));
+  cylY(22, 178, 186, 0, 0, MAT.dark, lt, 20);
+  R3.cabAnchor = new THREE.Vector3(1560, 740, -660);
+  // HMI on a pedestal arm
+  const hmi = new THREE.Group(); hmi.position.set(1330, 0, 560); hmi.rotation.y = -0.6; W.add(hmi);
+  cylY(28, FLOOR, 180, 0, 0, MAT.dark, hmi, 20); boxMM(-120, 120, FLOOR, FLOOR + 14, -120, 120, MAT.dark, hmi);
+  boxMM(-200, 200, 180, 470, -22, 4, MAT.black, hmi);
+  R3.screenTex = new THREE.CanvasTexture($('#inset')); R3.screenTex.encoding = THREE.sRGBEncoding;
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(272, 272), new THREE.MeshBasicMaterial({ map: R3.screenTex, toneMapped: false })); scr.position.set(0, 325, 5); hmi.add(scr);
+  boxMM(-190, -150, 196, 210, 4, 6, MAT.lens, hmi);
+  R3.hmiAnchor = new THREE.Vector3(1330, 490, 560);
+
+  // ---- Class 4 enclosure (hidden by default) ----
+  const enc = new THREE.Group(); W.add(enc); enc.visible = false; R3.encl = enc;
+  const ex0 = -1190, ex1 = 1190, ey1 = AX + 620, ez0 = -900, ez1 = 330, prof = 20;
+  for (const [x, z] of [[ex0, ez0], [ex1, ez0], [ex0, ez1], [ex1, ez1]]) boxMM(x - prof, x + prof, 0, ey1, z - prof, z + prof, MAT.alu, enc);
+  for (const y of [ey1]) { boxMM(ex0, ex1, y - prof, y + prof, ez0 - prof, ez0 + prof, MAT.alu, enc); boxMM(ex0, ex1, y - prof, y + prof, ez1 - prof, ez1 + prof, MAT.alu, enc); boxMM(ex0 - prof, ex0 + prof, y - prof, y + prof, ez0, ez1, MAT.alu, enc); boxMM(ex1 - prof, ex1 + prof, y - prof, y + prof, ez0, ez1, MAT.alu, enc); }
+  const pane = (geo, x, y, z, ry) => { const m = new THREE.Mesh(geo, MAT.glassPanel); m.position.set(x, y, z); m.rotation.y = ry || 0; m.renderOrder = 1; enc.add(m); return m; };
+  pane(new THREE.PlaneGeometry(ex1 - ex0, ey1), 0, ey1 / 2, ez0);
+  pane(new THREE.PlaneGeometry(ez1 - ez0, ey1), ex0, ey1 / 2, (ez0 + ez1) / 2, Math.PI / 2);
+  pane(new THREE.PlaneGeometry(ez1 - ez0, ey1), ex1, ey1 / 2, (ez0 + ez1) / 2, Math.PI / 2);
+  const top = pane(new THREE.PlaneGeometry(ex1 - ex0, ez1 - ez0), 0, ey1, (ez0 + ez1) / 2); top.rotation.x = Math.PI / 2;
+  pane(new THREE.PlaneGeometry(540, ey1), -920, ey1 / 2, ez1 - 2);
+  pane(new THREE.PlaneGeometry(540, ey1), 920, ey1 / 2, ez1 - 2);
+  R3.doors = [-1, 1].map(s => { const d = new THREE.Group(); enc.add(d); const m = new THREE.Mesh(new THREE.PlaneGeometry(650, ey1 - 40), MAT.glassPanel); m.position.y = (ey1 - 40) / 2 + 20; d.add(m); boxMM(-325, 325, ey1 - 30, ey1 - 10, -6, 6, MAT.alu, d); boxMM(-325, 325, 20, 40, -6, 6, MAT.alu, d); boxMM(s * 300 - 6, s * 300 + 6, 380, 520, 6, 30, MAT.dark, d); d.position.set(s * 325, 0, ez1 + 18); d.userData.s = s; return d; });
+}
+
+function buildRotary(s) {
+  const MAT = R3.MAT, W = R3.world, X = v => s * v, rng = (a, b) => [Math.min(X(a), X(b)), Math.max(X(a), X(b))];
+  rbox(...rng(700, 920), s > 0 ? 20 : 0, 250, -140, 140, 14, MAT.paint, W);
+  cylX(105, ...rng(680, 900), AX, 0, MAT.paint, W, 48);
+  cylX(108, ...rng(680, 694), AX, 0, MAT.dark, W, 48);
+  cylX(58, ...rng(900, 1030), AX, 0, MAT.black, W, 40);
+  cylX(59, ...rng(992, 1002), AX, 0, MAT.amber, W, 40);
+  cylX(46, ...rng(1030, 1060), AX, 0, MAT.dark, W, 32);
+  boxMM(...rng(905, 960), AX + 50, AX + 82, -22, 22, MAT.dark, W);
+  // dial ring (fixed), degree ticks
+  const dc = document.createElement('canvas'); dc.width = dc.height = 512; const d = dc.getContext('2d');
+  d.fillStyle = '#20272e'; d.fillRect(0, 0, 512, 512); d.translate(256, 256); d.strokeStyle = '#cfd8df'; d.fillStyle = '#cfd8df'; d.font = '600 20px sans-serif'; d.textAlign = 'center'; d.textBaseline = 'middle';
+  for (let a = 0; a < 360; a += 5) { const r0 = a % 30 === 0 ? 216 : 236, t = a * D2R; d.lineWidth = a % 30 === 0 ? 3 : 1.5; d.beginPath(); d.moveTo(Math.sin(t) * r0, -Math.cos(t) * r0); d.lineTo(Math.sin(t) * 252, -Math.cos(t) * 252); d.stroke(); }
+  const dt = new THREE.CanvasTexture(dc); dt.encoding = THREE.sRGBEncoding;
+  const ringG = new THREE.RingGeometry(84, 104, 96); ringG.rotateY(s < 0 ? Math.PI / 2 : -Math.PI / 2);
+  const ring = new THREE.Mesh(ringG, new THREE.MeshStandardMaterial({ map: dt, roughness: .5, metalness: .2 })); ring.position.set(X(679), AX, 0); W.add(ring);
+  // rotating chuck
+  const rot = new THREE.Group(); rot.position.set(X(600), AX, 0); W.add(rot);
+  cylX(80, ...[Math.min(s * 6, s * 80), Math.max(s * 6, s * 80)], 0, 0, MAT.steel, rot, 48);
+  cylX(81, ...[Math.min(s * 70, s * 80), Math.max(s * 70, s * 80)], 0, 0, MAT.dark, rot, 48);
+  for (let j = 0; j < 3; j++) { const b = j * 2 * Math.PI / 3; const m = mesh(new THREE.BoxGeometry(4, 64, 14), MAT.dark, rot); m.position.set(s * 6, 46 * Math.cos(b), 46 * Math.sin(b)); m.rotation.x = b; }
+  const jaws = [];
+  for (let j = 0; j < 3; j++) { const m = mesh(new THREE.BoxGeometry(36, 22, 11), MAT.ptfe, rot); m.position.x = s * -12; jaws.push(m); }
+  const mark = boxMM(-6, 6, 78, 86, -4, 4, MAT.amber, rot); mark.position.x = s * 40;
+  return { rot, jaws };
+}
+
+function buildSupport(x) {
+  const MAT = R3.MAT, fixed = new THREE.Group(); fixed.position.x = x; R3.world.add(fixed);
+  boxMM(-26, 26, AX + 330, AX + 430, -26, 26, MAT.alu, fixed);
+  boxMM(-28, 28, AX + 404, AX + 430, -28, 28, MAT.amber, fixed);
+  cylZ(6, 26, 40, 0, AX + 370, MAT.dark, fixed, 12);
+  const rod = mesh(new THREE.CylinderGeometry(7, 7, 1, 16), MAT.steel, fixed);
+  const grip = new THREE.Group(); fixed.add(grip);
+  boxMM(-32, 32, 0, 36, -74, 74, MAT.dark, grip);
+  boxMM(-33, 33, 30, 33, -74, 74, MAT.amber, grip);
+  const jaws = [-1, 1].map(sd => {
+    const jg = new THREE.Group(); grip.add(jg);
+    const plate = mesh(new THREE.BoxGeometry(24, 1, 8).translate(0, -0.5, 0), MAT.alu, jg);
+    const rollers = [0, 1].map(() => { const g = new THREE.CylinderGeometry(6, 6, 20, 20); g.rotateZ(-Math.PI / 2); return mesh(g, MAT.ptfe, jg); });
+    return { sd, jg, plate, rollers };
+  });
+  return { fixed, rod, grip, jaws, x };
+}
+
+/* ---- beam, focus glow, sensors ---- */
+function glowTex(mid, edge) { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.16, mid); g.addColorStop(.42, edge); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t; }
+function buildBeam() {
+  const MAT = R3.MAT, bg = new THREE.Group(); R3.world.add(bg); R3.beamG = bg;
+  const unit = new THREE.CylinderGeometry(1, 1, 1, 14, 1, true);
+  R3.segs = Array.from({ length: 8 }, () => { const core = new THREE.Mesh(unit, MAT.beamCore), halo = new THREE.Mesh(unit, MAT.beamHalo); core.renderOrder = halo.renderOrder = 5; bg.add(core, halo); return { core, halo }; });
+  R3.cone = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 28, 1, true), MAT.cone); R3.cone.renderOrder = 6; bg.add(R3.cone);
+  R3.acone = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 28, 1, true), MAT.alignCone); R3.acone.renderOrder = 6; R3.world.add(R3.acone);
+  R3.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(255,170,190,.95)', 'rgba(255,60,100,.45)'), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, toneMapped: false, transparent: true })); R3.glow.renderOrder = 9; R3.world.add(R3.glow);
+  R3.sglow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex('rgba(150,255,190,.9)', 'rgba(60,200,120,.35)'), blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, transparent: true })); R3.world.add(R3.sglow);
+  R3.plight = new THREE.PointLight(0xff5a3c, 0, 260, 2); R3.world.add(R3.plight);
+  const lg = () => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0], 3)); return g; };
+  R3.scan = new THREE.Line(lg(), MAT.scanLine); R3.scan.frustumCulled = false; R3.world.add(R3.scan);
+  R3.hot = new THREE.Line(lg(), MAT.hot); R3.hot.frustumCulled = false; R3.world.add(R3.hot);
+}
+let _Y, _d, _q, _m4, _v;   // scratch objects, created in init3D()
+function setSeg(seg, p, q, r, lit, path) {
+  _d.subVectors(q, p); const len = _d.length();
+  if (len < .01 || (!lit && !path)) { seg.core.visible = seg.halo.visible = false; return; }
+  _d.normalize(); _q.setFromUnitVectors(_Y, _d);
+  for (const m of [seg.core, seg.halo]) { m.quaternion.copy(_q); m.position.copy(p).add(q).multiplyScalar(.5); }
+  seg.core.scale.set(lit ? r : .9, len, lit ? r : .9); seg.halo.scale.set(r * 3.2, len, r * 3.2);
+  seg.core.material = lit ? R3.MAT.beamCore : R3.MAT.beamPath; seg.core.visible = true; seg.halo.visible = lit;
+}
+
+/* ---- tube parts (rebuilt when preform or θ changes) ---- */
+function makeTube(type, od, id, L) {
+  const ro = od / 2, ri = id / 2, V = THREE.Vector2;
+  const pts = [new V(ri, 0), new V(ro, 0), new V(ro, 0), new V(ro, L), new V(ro, L), new V(ri, L), new V(ri, L), new V(ri, 0)];
+  const seg = type === 'J' ? 72 : type === 'P' ? 48 : type === 'S' ? 36 : 24;
+  const geo = new THREE.LatheGeometry(pts, seg); geo.rotateZ(-Math.PI / 2); geo.translate(-L / 2, 0, 0);
+  const grp = new THREE.Group();
+  const m = new THREE.Mesh(geo, R3.GLASS[type]); m.renderOrder = { J: 2, P: 3, S: 4, T: 5 }[type]; grp.add(m);
+  const rings = [];
+  for (const x of [-L / 2, L / 2]) for (const r of [ro, ri]) {
+    const arr = []; for (let i = 0; i <= 48; i++) { const a = i / 48 * Math.PI * 2; arr.push(new THREE.Vector3(x, r * Math.cos(a), r * Math.sin(a))); }
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(arr), R3.RING[type]); grp.add(ln); rings.push(ln);
+  }
+  grp.userData = { type, glass: m, rings, cut: false };
+  return grp;
+}
+function disposeTree(o) { o.traverse(n => { if (n.geometry) n.geometry.dispose(); }); if (o.parent) o.parent.remove(o); }
+function rebuildParts() {
+  if (!R3.ok) return;
+  const g = M.g, N = M.N, L = M.p.L, MAT = R3.MAT;
+  if (R3.partObj) for (const id in R3.partObj) disposeTree(R3.partObj[id]);
+  if (R3.supports) R3.supports.forEach(s => disposeTree(s.fixed));
+  while (R3.rackGroup.children.length) disposeTree(R3.rackGroup.children[0]);
+  R3.partObj = {}; R3.plugObj = {}; R3.seamObj = {};
+  for (let k = 0; k < N; k++) {
+    R3.partObj['T' + k] = makeTube('T', M.p.tertiary.od, M.p.tertiary.id, L);
+    R3.partObj['S' + k] = makeTube('S', M.p.secondary.od, M.p.secondary.id, L);
+    R3.partObj['P' + k] = makeTube('P', M.p.primary.od, M.p.primary.id, L);
+  }
+  R3.partObj.J = makeTube('J', M.p.jacket.od, M.p.jacket.id, L);
+  for (const id in R3.partObj) { R3.partObj[id].visible = false; R3.world.add(R3.partObj[id]); }
+  // end plugs / spider plates (PTFE)
+  const plugPair = (host, r, y) => { const grp = new THREE.Group(); for (const x of [-L / 2 + 8, L / 2 - 8]) cylX(Math.max(.3, r - .05), x - 5, x + 5, y, 0, MAT.ptfe, grp, 24); R3.partObj[host].add(grp); grp.visible = false; return grp; };
+  for (let k = 0; k < N; k++) {
+    R3.plugObj['pS' + k] = plugPair('S' + k, g.rs - g.Rt, g.Rt);
+    R3.plugObj['pP' + k] = plugPair('P' + k, g.rp - g.Rs, g.Rs);
+  }
+  const spider = new THREE.Group();
+  for (const x of [-L / 2 + 8, L / 2 - 8]) {
+    cylX(Math.max(.5, g.Rc - g.Rp - .05), x - 5, x + 5, 0, 0, MAT.ptfe, spider, 40);
+    for (let k = 0; k < N; k++) {
+      const a = (k + .5) * 2 * Math.PI / N, r0 = g.Rc - g.Rp, r1 = g.Rj - .3, w = clamp(g.gap * .55, .4, 3);
+      const sp = boxMM(x - 5, x + 5, r0, r1, -w / 2, w / 2, MAT.ptfe, spider); sp.position.set(x, 0, 0); sp.geometry.translate(0, (r0 + r1) / 2, 0); sp.rotation.x = Math.PI - a;
+    }
+  }
+  spider.visible = false; R3.partObj.J.add(spider); R3.plugObj.pJ = spider;
+  // seams (children of the tube they are welded to)
+  const lineGeo = () => { const ge = new THREE.BufferGeometry(); ge.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0], 3)); return ge; };
+  const tubeGeo = new THREE.CylinderGeometry(.45, .45, 1, 8); tubeGeo.rotateZ(-Math.PI / 2);
+  for (let k = 0; k < N; k++) for (const [sid, host] of [['s1_' + k, 'S' + k], ['s2_' + k, 'P' + k], ['s3_' + k, 'J']]) {
+    const grp = new THREE.Group(), line = new THREE.Line(lineGeo(), MAT.weldLine), tube = new THREE.Mesh(tubeGeo, MAT.weldMesh);
+    line.frustumCulled = false; line.renderOrder = 1; grp.add(line, tube); grp.visible = false; R3.partObj[host].add(grp);
+    R3.seamObj[sid] = { grp, line, tube };
+  }
+  // supports
+  R3.supports = Array.from({ length: CFG.machine.supports }, (_, i) => buildSupport(-L / 2 + (i + 1) * L / (CFG.machine.supports + 1)));
+  // rack slots
+  for (let j = 0; j < N; j++) for (const x of [-450, 450]) { boxMM(x - 28, x + 28, -80, SLOT_TOP, slotZ(j) - 16, slotZ(j) + 16, MAT.dark, R3.rackGroup); boxMM(x - 29, x + 29, SLOT_TOP - 1, SLOT_TOP, slotZ(j) - 6, slotZ(j) + 6, MAT.ptfe, R3.rackGroup); }
+  setCut(UI.cut);
+}
+
+/* ---- per-frame update of the 3D scene from the state ---- */
+function apply3D(st, now) {
+  const g = M.g, L = M.p.L, MAT = R3.MAT, a = st.A * D2R;
+  R3.carriage.position.x = st.xc;
+  R3.zGroup.position.y = st.zf;
+  R3.spindle.rotation.x = a; R3.rotA1.rotation.x = a; R3.rotA2.rotation.x = a;
+  const rj = st.clampR + st.jaw * 30;
+  for (const J of [R3.jawsA1, R3.jawsA2]) J.forEach((m, j) => { const b = j * 2 * Math.PI / 3, rc = rj + 11; m.position.y = rc * Math.cos(b); m.position.z = rc * Math.sin(b); m.rotation.x = b; });
+  // supports
+  const R = st.clampR, r = 6, rr = (R + r) * Math.SQRT1_2, lift = st.sup * 240, yg = AX + R + 22 + lift;
+  for (const s of R3.supports) {
+    s.grip.position.y = yg;
+    const top = yg + 36, bot = AX + 330; s.rod.position.y = (top + bot) / 2; s.rod.scale.y = Math.max(1, bot - top);
+    for (const j of s.jaws) {
+      j.jg.position.set(0, 0, j.sd * (rr + r + 4 + st.sup * 22));
+      j.plate.scale.y = rr + R + r + 24;
+      j.rollers[0].position.set(0, rr - R - 22, -j.sd * (r + 4)); j.rollers[1].position.set(0, -rr - R - 22, -j.sd * (r + 4));
+      j.rollers[0].rotation.x = j.rollers[1].rotation.x = -a * R / r;
+    }
+  }
+  // parts
+  for (const id in st.parts) {
+    const q = st.parts[id], o = R3.partObj[id]; if (!o) continue;
+    o.visible = q.vis;
+    const host = q.host === 'world' ? R3.world : q.host === 'spindle' ? R3.spindle : R3.partObj[q.host];
+    if (o.parent !== host) host.add(o);
+    o.position.set(q.x, q.y, q.z); o.rotation.set(q.rx, 0, 0);
+    const cut = q.vis && onSpindle(st, id), ud = o.userData;
+    if (ud.cut !== cut) { ud.cut = cut; ud.glass.material = (cut ? R3.GLASS_CUT : R3.GLASS)[ud.type]; for (const l of ud.rings) l.material = (cut ? R3.RING_CUT : R3.RING)[ud.type]; }
+  }
+  for (const id in R3.plugObj) R3.plugObj[id].visible = !!st.plugs[id];
+  for (const sid in R3.seamObj) {
+    const s = st.seams[sid], o = R3.seamObj[sid]; if (!s) continue;
+    const on = s.x1 - s.x0 > .01; o.grp.visible = on; if (!on) continue;
+    const [y, z] = seamPoint(sid, s), pos = o.line.geometry.attributes.position;
+    pos.setXYZ(0, s.x0, y, z); pos.setXYZ(1, s.x1, y, z); pos.needsUpdate = true;
+    o.tube.position.set((s.x0 + s.x1) / 2, y, z); o.tube.scale.set(Math.max(.01, s.x1 - s.x0), 1, 1);
+    o.line.material = s.miss ? MAT.missLine : MAT.weldLine; o.tube.material = s.miss ? MAT.missMesh : MAT.weldMesh;
+  }
+  // beam
+  const lit = st.laser > .5, path = UI.beam, xc = st.xc, zf = st.zf, yF = AX - focusR(st), yS = AX - surfR(st);
+  const fl = lit ? (0.85 + 0.15 * Math.sin(now * 0.05)) : 1; MAT.beamCore.opacity = .95 * fl;
+  const S = R3.segs, P = (x, y, z) => new THREE.Vector3(x, y, z);
+  setSeg(S[0], R3.OUT, R3.EXP_IN, 1.25, lit, path);
+  setSeg(S[1], R3.EXP_IN, R3.EXP_OUT, 2.5, lit, path);
+  setSeg(S[2], R3.EXP_OUT, R3.M1, 3.75, lit, path);
+  setSeg(S[3], R3.M1, R3.M2, 3.75, lit, path);
+  setSeg(S[4], R3.M2, R3.M3, 3.75, lit, path);
+  setSeg(S[5], R3.M3, P(xc, BY, BZ), 3.75, lit, path);
+  setSeg(S[6], P(xc, BY, BZ), P(xc, BY, 0), 3.75, lit, path);
+  setSeg(S[7], P(xc, BY, 0), P(xc, zf - 62, 0), 3.75, lit, path);
+  R3.cone.visible = lit; if (lit) { R3.cone.position.set(xc, (zf + yF) / 2, 0); R3.cone.scale.set(3.75, Math.max(1, yF - zf), 3.75); }
+  R3.acone.visible = st.align > .5; if (st.align > .5) { R3.acone.position.set(xc, (zf + yS) / 2, 0); R3.acone.scale.set(9, Math.max(1, yS - zf), 9); }
+  R3.glow.visible = lit; R3.plight.intensity = lit ? 2.2 * fl : 0;
+  if (lit) { R3.glow.position.set(xc, yF, 0); const sz = 13 + 4 * Math.sin(now * .045); R3.glow.scale.set(sz, sz, 1); R3.plight.position.set(xc, yF - 30, 30); }
+  const hp = R3.hot.geometry.attributes.position; R3.hot.visible = lit;
+  if (lit) { hp.setXYZ(0, xc, yF, 0); hp.setXYZ(1, xc + 34, yF, 0); hp.needsUpdate = true; }
+  const sp = R3.scan.geometry.attributes.position; R3.scan.visible = R3.sglow.visible = st.scan > .5;
+  if (st.scan > .5) { sp.setXYZ(0, xc + 38, zf - 4, 0); sp.setXYZ(1, xc + 38, yS, 0); sp.needsUpdate = true; R3.sglow.position.set(xc + 38, yS, 0); R3.sglow.scale.set(9, 9, 1); }
+  // drag chain
+  const xf = -300, rb = 22.5, Lc = 1250, y0 = 16, xb = (Lc - Math.PI * rb + xf + xc) / 2, Ll = xb - xf;
+  for (let i = 0; i < R3.chainN; i++) {
+    const s = (i + .5) * Lc / R3.chainN; let x, y, ang;
+    if (s < Ll) { x = xf + s; y = y0; ang = 0; }
+    else if (s < Ll + Math.PI * rb) { const t = (s - Ll) / rb; x = xb + rb * Math.sin(t); y = y0 + rb - rb * Math.cos(t); ang = t; }
+    else { x = xb - (s - Ll - Math.PI * rb); y = y0 + 2 * rb; ang = Math.PI; }
+    _m4.position.set(x, y, 225); _m4.rotation.set(0, 0, ang); _m4.updateMatrix(); R3.chain.setMatrixAt(i, _m4.matrix);
+  }
+  R3.chain.instanceMatrix.needsUpdate = true;
+  // enclosure doors, lamps, beacon
+  if (R3.encl.visible) R3.doors.forEach(d => { d.position.x = d.userData.s * (325 + st.door * 640); });
+  const loading = st.cam === 'load' && !st.done, blink = Math.sin(now * .012) > 0;
+  R3.lamps[0].material.color.copy(R3.C(lit ? '#ff4060' : '#4d1520'));
+  R3.lamps[1].material.color.copy(R3.C(loading && blink ? '#ffb23a' : '#4d3a12'));
+  R3.lamps[2].material.color.copy(R3.C(!loading ? '#45e08a' : '#1e4d33'));
+  R3.beacon.material = lit ? MAT.beamCore : MAT.lampR;
+  R3.screenTex.needsUpdate = true;
+}
+
+/* =====================================================================
+   7. CAMERA: orbit controls + auto director
+   ===================================================================== */
+class Orbit {
+  constructor(cam, el) {
+    this.cam = cam; this.el = el; this.t = new THREE.Vector3(); this.s = new THREE.Spherical(3000, 1.1, .6);
+    this.gt = this.t.clone(); this.gs = this.s.clone(); this.ptr = new Map(); this.onUser = null; this.lastUser = -1e9;
+    el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); this.ptr.set(e.pointerId, { x: e.clientX, y: e.clientY, b: e.button, sh: e.shiftKey || e.ctrlKey || e.metaKey }); this.pinch = this.ptr.size === 2 ? this.pinchInfo() : null; });
+    el.addEventListener('pointermove', e => this.move(e));
+    for (const n of ['pointerup', 'pointercancel']) el.addEventListener(n, e => { this.ptr.delete(e.pointerId); this.pinch = null; });
+    el.addEventListener('wheel', e => { e.preventDefault(); this.zoom(Math.exp(e.deltaY * .0011)); }, { passive: false });
+    el.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  user() { this.lastUser = performance.now(); if (this.onUser) this.onUser(); }
+  move(e) {
+    const p = this.ptr.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+    if (!dx && !dy) return;
+    if (this.ptr.size === 1) {
+      this.user();
+      if (p.b === 2 || p.b === 1 || p.sh) this.pan(dx, dy);
+      else { this.gs.theta -= dx * .0055; this.gs.phi = clamp(this.gs.phi - dy * .0055, .06, Math.PI - .06); }
+    } else if (this.ptr.size === 2) {
+      this.user(); const info = this.pinchInfo();
+      if (this.pinch) { this.zoom(this.pinch.d / info.d); this.pan(info.cx - this.pinch.cx, info.cy - this.pinch.cy); }
+      this.pinch = info;
+    }
+  }
+  pinchInfo() { const a = [...this.ptr.values()]; return { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1, cx: (a[0].x + a[1].x) / 2, cy: (a[0].y + a[1].y) / 2 }; }
+  zoom(f) { this.user(); this.gs.radius = clamp(this.gs.radius * f, 40, 9000); }
+  pan(dx, dy) {
+    const h = this.el.clientHeight || 1, k = 2 * this.s.radius * Math.tan(this.cam.fov * D2R / 2) / h;
+    this.cam.updateMatrix();
+    const rgt = new THREE.Vector3().setFromMatrixColumn(this.cam.matrix, 0), up = new THREE.Vector3().setFromMatrixColumn(this.cam.matrix, 1);
+    const d = rgt.multiplyScalar(-dx * k).add(up.multiplyScalar(dy * k)); this.gt.add(d); this.t.add(d);
+  }
+  setGoal(pos, tgt) { this.gt.copy(tgt); this.gs.setFromVector3(new THREE.Vector3().subVectors(pos, tgt)); this.gs.theta -= Math.round((this.gs.theta - this.s.theta) / (2 * Math.PI)) * 2 * Math.PI; }
+  snap() { this.t.copy(this.gt); this.s.copy(this.gs); }
+  update(dt) {
+    const fast = performance.now() - this.lastUser < 400, k = 1 - Math.exp(-dt * (fast ? 16 : 2.4));
+    this.t.lerp(this.gt, k); this.s.radius = lerp(this.s.radius, this.gs.radius, k); this.s.theta = lerp(this.s.theta, this.gs.theta, k); this.s.phi = lerp(this.s.phi, this.gs.phi, k);
+    this.cam.position.copy(this.t).add(new THREE.Vector3().setFromSpherical(this.s)); this.cam.lookAt(this.t);
+    const near = clamp(this.s.radius * .02, 2, 60); if (Math.abs(this.cam.near - near) > .5) { this.cam.near = near; this.cam.updateProjectionMatrix(); }
+  }
+}
+function camPreset(name, st) {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z), xc = st.xc;
+  switch (name) {
+    case 'load': return [V(-1100, 1450, 3100), V(60, 20, 300)];
+    case 'support': return [V(-235, AX + 30, 300), V(25, AX - 6, 0)];
+    case 'weld': return [V(xc + 190, AX - 120, 255), V(xc - 25, AX - 22, 0)];
+    case 'index': return [V(-300, AX + 160, 420), V(-548, AX, 0)];
+    case 'beam': return [V(420, 760, -2350), V(-430, 0, -720)];
+    case 'finale': return [V(1010, 150, CRADLE_Z + 330), V(470, -15, CRADLE_Z)];
+    default: return [V(-2500, 2050, 2950), V(40, -80, -380)];
+  }
+}
+
+/* =====================================================================
+   8. UI
+   ===================================================================== */
+const UI = { labels: true, cut: true, beam: true, encl: false, cam: 'auto', T: 0, playing: true, speed: 1, lastStep: -1, scrubbing: false };
+const txtCache = new Map();
+const setT = (id, v) => { if (txtCache.get(id) !== v) { txtCache.set(id, v); const el = document.getElementById(id); if (el) el.textContent = v; } };
+
+const PRESETS = [120, 90, 72, 60, 360 / 7, 45];
+function buildPresets() {
+  const box = $('#presets'); box.textContent = '';
+  for (const th of PRESETS) {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.th = th;
+    b.innerHTML = `<b>${f2(th, th % 1 ? 2 : 0)}°</b><span>${Math.round(360 / th)} tubes</span>`;
+    b.addEventListener('click', () => setTheta(th)); box.appendChild(b);
+  }
+}
+function syncThetaUI() {
+  $$('#presets button').forEach(b => b.setAttribute('aria-pressed', String(Math.abs(+b.dataset.th - M.theta) < 1e-6)));
+  const inp = $('#theta'); if (document.activeElement !== inp) inp.value = +M.theta.toFixed(3);
+  $('#dirP').setAttribute('aria-pressed', String(M.dir > 0)); $('#dirN').setAttribute('aria-pressed', String(M.dir < 0));
+  const g = M.g, N = M.N, exact = Math.abs(N * M.theta - 360) < 0.01, msg = $('#thetaMsg');
+  if (!exact) { msg.className = 'msg crit'; msg.innerHTML = `<b>θ does not divide 360°.</b> ${N} tubes sit every ${f2(360 / N, 3)}°, but the axis steps ${f2(M.theta, 3)}°. Seams after the first miss their tube (shown red).`; }
+  else if (g.gap < 0) { msg.className = 'msg crit'; msg.innerHTML = `<b>${N} primaries do not fit.</b> Neighbours overlap by ${f2(-g.gap, 2)} mm. Max primary OD for ${N} tubes in a ${M.p.jacket.id} mm bore is ${f2(g.odMax, 2)} mm.`; }
+  else { msg.className = 'msg ok'; msg.innerHTML = `<b>${N} seams per preform.</b> 360° ÷ ${f2(M.theta, 3)}° = ${N}. The program indexes A1 and A2 together, then returns to 0° after the last seam.`; }
+  $('#nOut').textContent = N;
+}
+
+function buildProgram() {
+  const box = $('#prog'); box.textContent = ''; UI.progLines = []; let n = 10;
+  M.plan.steps.forEach((s, i) => {
+    if (!s.code) return;
+    for (const c of (Array.isArray(s.code) ? s.code : [s.code])) {
+      const el = document.createElement('div'); const k = c.indexOf(';');
+      const cmd = k < 0 ? c : c.slice(0, k), cmt = k < 0 ? '' : c.slice(k);
+      el.className = 'pl' + (k === 0 ? ' cm' : '');
+      el.innerHTML = `<span class="ln">N${n}</span><span class="cd">${esc(cmd || cmt)}</span>${k > 0 ? `<span class="cmt">${esc(cmt)}</span>` : ''}`;
+      el.dataset.step = i; box.appendChild(el); UI.progLines.push(el); n += 10;
+    }
+  });
+  UI.lastStep = -1;
+}
+function highlightProgram(stepIdx) {
+  const own = M.plan.owner[stepIdx]; if (own === UI.lastStep) return; UI.lastStep = own;
+  let first = null;
+  for (const el of UI.progLines) { const on = +el.dataset.step === own; el.classList.toggle('cur', on); if (on && !first) first = el; }
+  if (first) { const box = $('#prog'); box.scrollTop = first.offsetTop - box.clientHeight * .42; }
+}
+function buildTimeline() {
+  const band = $('#tlStages'); band.textContent = ''; const T = M.plan.total;
+  for (const s of [1, 2, 3]) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'tls'; b.dataset.s = s;
+    b.style.left = (M.plan.stageStart[s] / T * 100) + '%'; b.style.width = ((M.plan.stageEnd[s] - M.plan.stageStart[s]) / T * 100) + '%';
+    b.innerHTML = `${s}<span> · ${esc(STAGE_NAME[s])}</span>`; b.title = 'Jump to stage ' + s + ': ' + STAGE_NAME[s]; b.addEventListener('click', () => { seek(M.plan.stageStart[s]); setPlaying(true); });
+    band.appendChild(b);
+  }
+  $('#scrub').max = T.toFixed(2);
+}
+
+function updatePreformUI() {
+  const p = M.p, g = M.g;
+  for (const [k, pre] of [['jacket', 'j'], ['primary', 'p'], ['secondary', 's'], ['tertiary', 't']]) {
+    const od = $('#' + pre + 'OD'), id = $('#' + pre + 'ID');
+    if (document.activeElement !== od) od.value = p[k].od; if (document.activeElement !== id) id.value = p[k].id;
+    $('#' + pre + 'W').textContent = f2((p[k].od - p[k].id) / 2, 2);
+  }
+  if (document.activeElement !== $('#Lin')) $('#Lin').value = p.L;
+  const tolDeg = 0.010 / g.Rj / D2R;
+  const kv = [
+    ['Primary pitch radius R (tangent)', f2(g.Rc, 2) + ' mm'], ['Secondary offset in primary', f2(g.eS, 2) + ' mm'], ['Tertiary offset in secondary', f2(g.eT, 2) + ' mm'],
+    ['Gap between primaries', f2(g.gap, 2) + ' mm'], ['Open core (inscribed)', 'Ø' + f2(g.core, 2) + ' mm'], [`Max primary OD for N = ${M.N}`, f2(g.odMax, 2) + ' mm'],
+    ['Weld radius (jacket bore)', f2(g.Rj, 2) + ' mm'], ['A accuracy for ±10 µm seam', '±' + f2(tolDeg, 3) + '° (' + Math.round(tolDeg * 3600) + '″)'], ['Weld length per seam', M.W + ' mm']
+  ];
+  $('#kv').innerHTML = kv.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('');
+  const ch = [];
+  const add = (l, m) => ch.push(`<li class="${l}"><i></i><span>${m}</span></li>`);
+  if (g.eS < 0) add('crit', `Secondary OD ${p.secondary.od} is larger than primary ID ${p.primary.id}.`); else add('ok', `Secondary touches the primary bore ${f2(g.eS, 2)} mm off-centre, on the outward side.`);
+  if (g.eT < 0) add('crit', `Tertiary OD ${p.tertiary.od} is larger than secondary ID ${p.secondary.id}.`); else add('ok', `Tertiary touches the secondary bore at the same angle, so both seams line up.`);
+  if (g.gap < 0) add('crit', `Primaries overlap by ${f2(-g.gap, 2)} mm at N = ${M.N}. Use OD ≤ ${f2(g.odMax, 2)} mm or a larger jacket bore.`);
+  else if (g.gap < .5) add('warn', `Primaries nearly touch (gap ${f2(g.gap, 2)} mm).`); else add('ok', `Neighbouring primaries clear by ${f2(g.gap, 2)} mm.`);
+  if (Math.abs(g.Rc - 20.5) > .01) add('warn', `Drawing states R = 20.5 mm. Tangency with the jacket bore needs R = ${f2(g.Rc, 2)} mm.`);
+  if (Math.abs(M.N * M.theta - 360) > .01) add('crit', `Index angle ${f2(M.theta, 3)}° does not divide 360°.`);
+  $('#checks').innerHTML = ch.join('');
+  // sag table
+  const E = 72e9, RHO = 2200, G = 9.81, Lm = p.L / 1000, n = CFG.machine.supports, span = Lm / (n + 1);
+  const Ar = t => Math.PI / 4 * (p[t].od ** 2 - p[t].id ** 2) * 1e-6, Ir = t => Math.PI / 64 * (p[t].od ** 4 - p[t].id ** 4) * 1e-12, sag = (w, I, l) => w * l ** 4 / (384 * E * I) * 1000;
+  const rows = [
+    ['Stage 1 · secondary carrying tertiary', RHO * G * (Ar('secondary') + Ar('tertiary')), Ir('secondary'), true],
+    ['Stage 2 · primary carrying A1', RHO * G * (Ar('primary') + Ar('secondary') + Ar('tertiary')), Ir('primary'), true],
+    [`Stage 3 · jacket carrying ${M.N} × A2`, RHO * G * (Ar('jacket') + M.N * (Ar('primary') + Ar('secondary') + Ar('tertiary'))), Ir('jacket'), true],
+    ['Tertiary on its own (for comparison)', RHO * G * Ar('tertiary'), Ir('tertiary'), false]
+  ];
+  const um = v => v >= 1 ? f2(v, 2) + ' mm' : Math.max(0.1, v * 1000).toFixed(v * 1000 < 10 ? 1 : 0) + ' µm';
+  $('#sagT').innerHTML = `<tr><th>Case</th><th style="text-align:right">Ends clamped</th><th style="text-align:right">+ ${n} supports</th></tr>` +
+    rows.map(([nm, w, I, s]) => `<tr><td>${esc(nm)}</td><td class="n">${um(sag(w, I, Lm))}</td><td class="n">${s ? '≈ ' + um(sag(w, I, span)) : '—'}</td></tr>`).join('');
+  drawDesign($('#design'));
+  updateCycleUI();
+}
+function updateCycleUI() {
+  const rt = CFG.process.real, W = M.W, N = M.N, seam = W / CFG.process.scanSpeed + W / M.weldSpeed;
+  const s1 = N * (rt.loadPart + rt.align + seam + rt.unloadPart), s2 = s1, s3 = rt.loadJacket + rt.align + N * seam + N * rt.index + rt.unloadJacket;
+  $('#ctT').innerHTML = `<tr><th>Step</th><th style="text-align:right">Time</th></tr>
+    <tr><td>One seam (scan + weld, ${W} mm)</td><td class="n">${human(seam)}</td></tr>
+    <tr><td>Stage 1 · ${N} tertiary → secondary</td><td class="n">${human(s1)}</td></tr>
+    <tr><td>Stage 2 · ${N} secondary → primary</td><td class="n">${human(s2)}</td></tr>
+    <tr><td>Stage 3 · ${N} seams in jacket</td><td class="n">${human(s3)}</td></tr>
+    <tr><td style="color:var(--fg)"><b>Total per preform</b></td><td class="n" style="color:var(--fg)">${human(s1 + s2 + s3)}</td></tr>`;
+}
+
+/* ---- labels (HTML overlay pinned to 3D points); listed in priority order ---- */
+const LABELS = [
+  { t: 'Femtosecond laser · fixed', s: 'GZTECH S-50-1030-F2 · 738×370×143 mm', p: () => R3.laserAnchor },
+  { t: 'A1 rotary indexer', s: 'servo + harmonic drive · θ steps', p: () => new THREE.Vector3(-820, AX + 112, 0) },
+  { t: 'Alignment supports ×3', s: 'V-rollers · lift for loading', p: () => new THREE.Vector3(-M.p.L / 4, AX + 490, 0) },
+  { t: 'A2 synced tailstock', s: 'electronic gearing · W slide', p: () => new THREE.Vector3(820, AX + 112, 0) },
+  { t: 'Focus head (flying optics)', s: 'M4 · M5 · Z stage · objective', p: st => new THREE.Vector3(st.xc - 74, 292, 0) },
+  { t: 'Periscope M1–M3', s: '3× expander · beam to X line', p: () => R3.opticsAnchor },
+  { t: 'X axis · linear motor', s: 'weld stroke 1080 mm', p: () => new THREE.Vector3(470, 30, 150), id: 'x' },
+  { t: 'Load table + rack', s: 'pre-assembly · sub-assemblies', p: () => new THREE.Vector3(-560, -80, 980) },
+  { t: 'HMI + motion controller', s: 'θ, N, program', p: () => R3.hmiAnchor }
+];
+function buildLabels() {
+  const box = $('#labels'); box.textContent = '';
+  for (const L of LABELS) { const el = document.createElement('div'); el.className = 'lbl'; el.innerHTML = `<i class="stem"></i><i class="dot"></i><div class="card"><b>${esc(L.t)}</b><span>${esc(L.s)}</span></div>`; box.appendChild(el); L.el = el; L.card = el.querySelector('.card'); L.size = null; }
+}
+function hudRects() {
+  const vr = $('#vp').getBoundingClientRect(), out = [];
+  for (const sel of ['.hud-tl', '.tools', '.inset', '.tl', '#banner']) {
+    const el = $(sel); if (!el || el.hidden) continue; const r = el.getBoundingClientRect(); if (!r.width) continue;
+    out.push([r.left - vr.left, r.top - vr.top, r.right - vr.left, r.bottom - vr.top]);
+  }
+  return out;
+}
+function updateLabels(st) {
+  const show = UI.labels && !st.banner, w = R3.vpW, h = R3.vpH, cam = R3.camera;
+  const occ = show ? hudRects() : [];
+  for (const L of LABELS) {
+    if (!show) { L.el.style.display = 'none'; continue; }
+    if (L.id === 'x') { const t = 'weld stroke ' + M.W + ' mm'; if (L.s !== t) { L.s = t; L.el.querySelector('span').textContent = t; L.size = null; } }
+    const p = L.p(st); _v.copy(p).project(cam);
+    const dist = cam.position.distanceTo(p);
+    if (!(_v.z < 1 && _v.z > -1 && Math.abs(_v.x) < 1 && Math.abs(_v.y) < 1 && dist > 260)) { L.el.style.display = 'none'; continue; }
+    L.el.style.display = '';
+    if (!L.size) L.size = { w: L.card.offsetWidth, h: L.card.offsetHeight };
+    const x = (_v.x + 1) / 2 * w, y = (1 - _v.y) / 2 * h, cw = L.size.w, ch = L.size.h;
+    let placed = 0;
+    for (const side of [1, -1]) {
+      const r = side > 0 ? [x - 1, y - 24 - ch, x - 1 + cw, y + 4] : [x + 1 - cw, y - 24 - ch, x + 1, y + 4];
+      if (r[0] < 4 || r[2] > w - 4 || r[1] < 4) continue;
+      if (occ.some(o => r[2] + 4 > o[0] && r[0] - 4 < o[2] && r[3] + 4 > o[1] && r[1] - 4 < o[3])) continue;
+      occ.push(r); placed = side; break;
+    }
+    if (!placed) { L.el.style.display = 'none'; continue; }
+    L.el.classList.toggle('left', placed < 0);
+    L.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+  }
+}
+
+function updateHUD(st) {
+  const lit = st.laser > .5;
+  const pl = $('#pLaser'); pl.className = 'pill' + (lit ? ' on' : st.scan > .5 ? ' scan' : '');
+  setT('pLaserTxt', lit ? 'LASER ON · 1030 nm' : st.scan > .5 ? 'HEIGHT SCAN' : 'LASER OFF');
+  pl.lastChild.nodeValue = txtCache.get('pLaserTxt');
+  const ps = $('#pStage'); ps.lastChild.nodeValue = st.done ? 'DONE' : `STAGE ${st.stage}/3`;
+  setT('stChip', st.done ? 'Complete' : `Stage ${st.stage} of 3`);
+  setT('stTitle', STAGE_NAME[st.stage]);
+  setT('stSub', st.done ? `${M.N} primaries, ${3 * M.N} seams welded` : st.stage === 3 ? `Seam ${Math.min(st.seam + 1, M.N)} of ${M.N} · primary pitch ${f2(360 / M.N, 2)}°` : `Part ${st.k + 1} of ${M.N}`);
+  setT('droX', fx(st.xc)); setT('droZ', fx(st.zf)); setT('droA', mod360(st.A).toFixed(3));
+  setT('droL', lit ? 'ON' : 'OFF'); setT('droF', lit ? st.feed + ' · weld' : st.scan > .5 ? st.feed + ' · scan' : 'G0 rapid');
+  $('#droLbox').classList.toggle('on', lit);
+  setT('stepNow', st.label || '—');
+  highlightProgram(st.stepIdx);
+  // banner
+  const bn = $('#banner');
+  if (st.banner) {
+    bn.hidden = false; setT('bE', st.banner.e); setT('bT', st.banner.t); setT('bS', st.banner.s);
+    const u = st.bannerU, op = st.hold ? Math.min(1, u / .12) : Math.min(1, u / .12, (1 - u) / .15); bn.style.opacity = clamp(op, 0, 1).toFixed(2);
+  } else bn.hidden = true;
+  // timeline
+  if (!UI.scrubbing) $('#scrub').value = UI.T.toFixed(2);
+  setT('tTime', mmss(UI.T) + ' / ' + mmss(M.plan.total));
+  $$('.tls').forEach(b => b.classList.toggle('cur', +b.dataset.s === st.stage));
+}
+
+/* ---- playback ---- */
+function seek(T) { UI.T = clamp(T, 0, M.plan.total); }
+function setPlaying(p) {
+  UI.playing = p; if (p && UI.T >= M.plan.total - 1e-6) UI.T = 0;
+  $('#bPlay').setAttribute('aria-label', p ? 'Pause' : 'Play');
+  $('#icoPlay').innerHTML = p ? '<path d="M3 2h4v12H3zM9 2h4v12H9z"/>' : '<path d="M3 1.5l11 6.5-11 6.5z"/>';
+}
+function stepBy(d) {
+  const steps = M.plan.steps.filter(s => s.dur > 0), T = UI.T;
+  if (d > 0) { const n = steps.find(s => s.t0 > T + 1e-3); seek(n ? n.t0 : M.plan.total); }
+  else { let prev = null; for (const s of steps) { if (s.t0 < T - .05) prev = s; else break; } seek(prev ? prev.t0 : 0); }
+  setPlaying(false);
+}
+function rebuildAll(keepStage) {
+  const st = keepStage ? evaluate(UI.T).stage : 1;
+  recompute(); M.plan = buildPlan();
+  rebuildParts();
+  buildProgram(); buildTimeline(); syncThetaUI(); updatePreformUI();
+  seek(keepStage ? M.plan.stageStart[st] : 0);
+}
+function setTheta(th) {
+  th = Number(th); if (!isFinite(th)) return; th = clamp(th, 24, 180);
+  M.theta = th; rebuildAll(true); setPlaying(true);
+}
+
+function setCamMode(m) {
+  UI.cam = m; $$('[data-cam]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cam === m)));
+}
+
+function wireUI() {
+  buildPresets();
+  $('#theta').addEventListener('change', e => setTheta(e.target.value));
+  $('#dirP').addEventListener('click', () => { M.dir = 1; rebuildAll(true); });
+  $('#dirN').addEventListener('click', () => { M.dir = -1; rebuildAll(true); });
+  $('#fast').addEventListener('change', e => { M.fast = e.target.checked; rebuildAll(true); });
+  $$('[data-go]').forEach(b => b.addEventListener('click', () => { const s = +b.dataset.go; seek(s ? M.plan.stageStart[s] : 0); setPlaying(true); }));
+  $('#bPlay').addEventListener('click', () => setPlaying(!UI.playing));
+  $('#bRestart').addEventListener('click', () => { seek(0); setPlaying(true); });
+  $('#bBack').addEventListener('click', () => stepBy(-1));
+  $('#bFwd').addEventListener('click', () => stepBy(1));
+  $('#speed').addEventListener('change', e => { UI.speed = +e.target.value; });
+  const sc = $('#scrub');
+  sc.addEventListener('input', () => { UI.scrubbing = true; seek(+sc.value); });
+  sc.addEventListener('change', () => { UI.scrubbing = false; });
+  sc.addEventListener('pointerup', () => { UI.scrubbing = false; });
+  $$('[data-cam]').forEach(b => b.addEventListener('click', () => setCamMode(b.dataset.cam)));
+  $$('[data-tog]').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.tog; UI[k] = !UI[k]; b.setAttribute('aria-pressed', String(UI[k]));
+    if (k === 'cut' && R3.ok) setCut(UI.cut);
+    if (k === 'encl' && R3.ok) R3.encl.visible = UI.encl;
+  }));
+  // tabs
+  $$('.tabs [role=tab]').forEach(t => t.addEventListener('click', () => {
+    $$('.tabs [role=tab]').forEach(x => { const on = x === t; x.setAttribute('aria-selected', String(on)); $('#' + x.getAttribute('aria-controls')).hidden = !on; });
+    if (t.id === 't-pre') drawDesign($('#design'));
+    if (t.id === 't-ctl') UI.lastStep = -1;
+  }));
+  // preform inputs
+  const onDims = () => {
+    const rd = id => Number($('#' + id).value);
+    const p = { L: rd('Lin'), jacket: { od: rd('jOD'), id: rd('jID') }, primary: { od: rd('pOD'), id: rd('pID') }, secondary: { od: rd('sOD'), id: rd('sID') }, tertiary: { od: rd('tOD'), id: rd('tID') } };
+    const bad = ['jacket', 'primary', 'secondary', 'tertiary'].some(k => !(p[k].od > 0 && p[k].id > 0 && p[k].id < p[k].od)) || !(p.L >= 300 && p.L <= 2000)
+      || p.secondary.od > p.primary.id || p.tertiary.od > p.secondary.id || p.primary.od >= p.jacket.id;
+    if (bad) { $('#checks').innerHTML = '<li class="crit"><i></i><span>These sizes cannot nest. Each ID must be smaller than its OD, each tube must fit inside the bore of the next tube out, and the length must be 300–2000 mm. The animation keeps the last valid set.</span></li>'; return; }
+    M.p = p; rebuildAll(true);
+  };
+  ['jOD', 'jID', 'pOD', 'pID', 'sOD', 'sID', 'tOD', 'tID', 'Lin'].forEach(id => $('#' + id).addEventListener('change', onDims));
+  $('#vWeld').addEventListener('change', e => { const v = Number(e.target.value); if (v > 0) { M.weldSpeed = v; rebuildAll(true); } });
+  document.addEventListener('keydown', e => {
+    if (e.target.matches('input,select,textarea')) return;
+    if (e.code === 'Space') { e.preventDefault(); setPlaying(!UI.playing); }
+    else if (e.key === 'ArrowRight') stepBy(1); else if (e.key === 'ArrowLeft') stepBy(-1);
+  });
+}
+
+/* =====================================================================
+   9. MAIN LOOP
+   ===================================================================== */
+function resize() {
+  const vp = $('#vp'), w = vp.clientWidth, h = vp.clientHeight;
+  if (!R3.ok || !w || !h) return;
+  R3.vpW = w; R3.vpH = h;
+  R3.renderer.setSize(w, h, false); R3.camera.aspect = w / h; R3.camera.updateProjectionMatrix();
+}
+let lastNow = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - lastNow) / 1000); lastNow = now;
+  if (UI.playing && !UI.scrubbing) { UI.T += dt * UI.speed; if (UI.T >= M.plan.total) { UI.T = M.plan.total; setPlaying(false); } }
+  const st = evaluate(UI.T);
+  drawSection($('#inset'), st, now);
+  updateHUD(st);
+  if (R3.ok) {
+    apply3D(st, now);
+    if (UI.cam !== 'free') {
+      const [p, t] = camPreset(UI.cam === 'auto' ? st.cam : UI.cam, st), asp = R3.camera.aspect || 1.6;
+      if (asp < 1.3) p.sub(t).multiplyScalar(clamp(1.3 / asp, 1, 2.3)).add(t);   // pull back on portrait screens
+      R3.orbit.setGoal(p, t);
+    }
+    R3.orbit.update(dt);
+    R3.renderer.render(R3.scene, R3.camera);
+    updateLabels(st);
+  }
+  window.__app.state = st; window.__app.frames = (window.__app.frames || 0) + 1;
+  requestAnimationFrame(frame);
+}
+
+function boot() {
+  recompute(); M.plan = buildPlan();
+  wireUI();
+  if (HAS3D) {
+    try { init3D(); } catch (err) { console.error(err); }
+  }
+  if (!R3.ok) { $('#glmsg').hidden = false; $('#labels').hidden = true; }
+  else {
+    R3.orbit = new Orbit(R3.camera, R3.canvas);
+    R3.orbit.onUser = () => { if (UI.cam !== 'free') setCamMode('free'); };
+    const [p, t] = camPreset('overview', { xc: 0 }); R3.orbit.setGoal(p, t); R3.orbit.snap();
+    buildLabels();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => LABELS.forEach(L => { L.size = null; }));
+    new ResizeObserver(() => { resize(); LABELS.forEach(L => { L.size = null; }); }).observe($('#vp')); resize();
+  }
+  buildProgram(); buildTimeline(); syncThetaUI(); updatePreformUI();
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setPlaying(false); setCamMode('overview'); }
+  else setPlaying(true);
+  requestAnimationFrame(frame);
+}
+window.__app = { M, UI, seek: T => seek(T), evaluate, setTheta, setPlaying, setCamMode, plan: () => M.plan, R3,
+  probe: T => { const st = evaluate(T); if (R3.ok) apply3D(st, T * 1000); drawSection($('#inset'), st, T * 1000); updateHUD(st); return st; } };
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
+</body>
+</html>
